@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* -------------------------------------------------------------------------
+ * Theming: every color/shadow/font token below is a CSS custom property so
+ * the whole app can be re-skinned by flipping `data-theme` on <html> — see
+ * `app-shell.tsx` for the sidebar toggle that does it. `:root` is the
+ * original tmPro brand look (unchanged); `[data-theme="midnight"]` is the
+ * second option, styled after a reference fintech-dashboard screenshot the
+ * user supplied (dark-navy sidebar, white canvas, blue accent, a rounder
+ * geometric font). tailwind.config.ts wires these into the existing
+ * `ink` / `accent` / `chrome.*` / `sidebar-gradient` / `brand-gradient` /
+ * `shadow-card` utilities already used across every page, so no component
+ * markup had to change to support the second theme.
+ * ------------------------------------------------------------------------- */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --page-bg: #f5f3fc;
+  --ink: #181524;
+  --accent: #2b3af5;
+  --chrome-bg: #f5f3fc;
+  --chrome-panel: #2a1f66;
+  --chrome-panel-soft: #382a82;
+  --sidebar-gradient: linear-gradient(180deg, #2a1f66 0%, #3b2789 60%, #5b2794 100%);
+  --brand-gradient: linear-gradient(115deg, #14b8f0 0%, #2b3af5 28%, #8b2fd9 55%, #d626c9 75%, #ff8a1e 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(20, 184, 240, 0.14) 0%, rgba(139, 47, 217, 0.14) 50%, rgba(255, 138, 30, 0.14) 100%);
+  --card-shadow: 0 1px 2px rgba(24, 21, 36, 0.04), 0 8px 24px -12px rgba(43, 58, 245, 0.12);
+  --accent-ring: rgba(43, 58, 245, 0.3);
+  --nav-active-bg: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme='midnight'] {
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --page-bg: #f7f8fa;
+  --ink: #101828;
+  --accent: #4988f7;
+  --chrome-bg: #f7f8fa;
+  --chrome-panel: #0d1330;
+  --chrome-panel-soft: #1b2a6b;
+  /* Deep blue fading to near-black, top to bottom — more dramatic than a
+     flat navy panel. */
+  --sidebar-gradient: linear-gradient(180deg, #1b2a6b 0%, #0d1330 55%, #05070d 100%);
+  --brand-gradient: linear-gradient(120deg, #4988f7 0%, #3461af 100%);
+  --brand-gradient-soft: linear-gradient(135deg, rgba(73, 136, 247, 0.12) 0%, rgba(52, 97, 175, 0.12) 100%);
+  --card-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 24px -14px rgba(73, 136, 247, 0.22);
+  --accent-ring: rgba(73, 136, 247, 0.3);
+  /* The reference screenshot's active nav item is a solid, fully-opaque
+     accent-blue pill rather than a translucent overlay. */
+  --nav-active-bg: #4988f7;
+}
+
+body {
+  color: var(--ink);
+  background: var(--page-bg);
+  font-family: var(--font-sans);
+}
+
+.card {
+  @apply bg-white border border-slate-100 rounded-2xl p-5 shadow-card;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-primary {
+  @apply btn text-white shadow-sm;
+  background: var(--brand-gradient);
+  filter: brightness(1);
+}
+.btn-primary:hover {
+  filter: brightness(0.92);
+}
+
+.btn-secondary {
+  @apply btn bg-white border border-slate-200 text-ink hover:bg-slate-50;
+}
+
+.input {
+  @apply w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-ring)] focus:border-accent;
+}
+
+.label {
+  @apply block text-xs font-medium uppercase tracking-wide text-slate-500 mb-1;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+}

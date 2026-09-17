@@ -1,0 +1,118 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789015573608,
+      "tag": "0000_massive_leo",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789015777107,
+      "tag": "0001_tranquil_maria_hill",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789177443169,
+      "tag": "0003_add_org_structure",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789199649001,
+      "tag": "0005_add_documents_photo_components",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789200073213,
+      "tag": "0007_add_payslip_components",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789213597877,
+      "tag": "0008_add_announcement_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789265169948,
+      "tag": "0009_payroll_adjustments_and_zm_defaults",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789660800000,
+      "tag": "0011_compensation_currency_allowances",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1789747200000,
+      "tag": "0012_org_identifiers_employee_ids_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789376490597,
+      "tag": "0013_add_proration_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789458830394,
+      "tag": "0014_leave_accrual_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789468654251,
+      "tag": "0015_training_courses",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789468677791,
+      "tag": "0016_rls_training",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789537922758,
+      "tag": "0017_case_insensitive_email",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789549905829,
+      "tag": "0018_identify_cross_tenant_read",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1789566269178,
+      "tag": "0019_many_moira_mactaggert",
+      "breakpoints": true
+    }
+  ]
+}

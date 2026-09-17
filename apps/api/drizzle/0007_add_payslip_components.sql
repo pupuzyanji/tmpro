@@ -1,0 +1,1 @@
+ALTER TABLE "payslips" ADD COLUMN "components" jsonb DEFAULT '{}'::jsonb NOT NULL;
