@@ -6,6 +6,7 @@
 export const MODULE_KEYS = [
   'Employee Records',
   'Leave & Attendance',
+  'Timesheets',
   'Performance Management',
   'Payroll',
   'Recruitment',

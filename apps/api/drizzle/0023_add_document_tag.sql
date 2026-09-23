@@ -1,0 +1,11 @@
+-- Documents "Other" upload slot: an Admin/HR uploader picks one of a fixed
+-- list of HR document tags (Passport, Visa/Work Permit, ... "Other") for a
+-- document filed under OTHER. Null for CONTRACT/ID, and for OTHER documents
+-- an employee self-uploads (the tag picker is Admin/HR-only — enforced in
+-- the frontend upload form, not here).
+--
+-- Note: `drizzle-kit generate` also wanted to replay 0020/0021/0022's
+-- statements (its last snapshot predates those, which were hand-written) —
+-- trimmed back down to just this column so it doesn't collide with tables
+-- and columns those migrations already created.
+ALTER TABLE "employee_documents" ADD COLUMN "tag" varchar(80);

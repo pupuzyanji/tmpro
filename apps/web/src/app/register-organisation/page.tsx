@@ -4,10 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Logo } from '@/components/logo';
-import { COUNTRIES } from '@/lib/reference-data';
+import { COUNTRIES, DIAL_CODE_OPTIONS } from '@/lib/reference-data';
 import {
   IconUsers,
   IconCalendar,
+  IconClock,
   IconTarget,
   IconDollar,
   IconBriefcase,
@@ -19,6 +20,7 @@ import {
 const FEATURES: Array<{ key: string; label: string; icon: React.ReactNode }> = [
   { key: 'Employee Records', label: 'Employee Records', icon: <IconUsers /> },
   { key: 'Leave & Attendance', label: 'Leave & Attendance', icon: <IconCalendar /> },
+  { key: 'Timesheets', label: 'Timesheets', icon: <IconClock /> },
   { key: 'Performance Management', label: 'Performance Management', icon: <IconTarget /> },
   { key: 'Payroll', label: 'Payroll', icon: <IconDollar /> },
   { key: 'Recruitment', label: 'Recruitment', icon: <IconBriefcase /> },
@@ -32,6 +34,8 @@ const STAFF_HELP = "How many people will use tmPro — your whole headcount, not
 export default function RegisterOrganisationPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [dialCode, setDialCode] = useState('+260');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [organisationName, setOrganisationName] = useState('');
   const [country, setCountry] = useState('');
   const [staffComplement, setStaffComplement] = useState('');
@@ -51,6 +55,10 @@ export default function RegisterOrganisationPage() {
       setError('Enter how many staff will be using tmPro.');
       return;
     }
+    if (!phoneNumber.trim()) {
+      setError('Enter a phone number.');
+      return;
+    }
     setStatus('submitting');
     try {
       await apiFetch('/org-signup', null, {
@@ -58,6 +66,7 @@ export default function RegisterOrganisationPage() {
         body: JSON.stringify({
           name,
           email,
+          phone: `${dialCode} ${phoneNumber.trim()}`,
           organisationName,
           country,
           staffComplement: staff,
@@ -163,6 +172,36 @@ export default function RegisterOrganisationPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="jane@company.com"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="phone">
+                    Phone number
+                  </label>
+                  <div className="flex gap-2">
+                    <select
+                      id="phone-dial-code"
+                      aria-label="Country code"
+                      className="input !w-[6.5rem] shrink-0 !px-2"
+                      value={dialCode}
+                      onChange={(e) => setDialCode(e.target.value)}
+                    >
+                      {DIAL_CODE_OPTIONS.map((d) => (
+                        <option key={d.code} value={d.dialCode}>
+                          {d.dialCode} {d.code}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      id="phone"
+                      type="tel"
+                      className="input min-w-0 flex-1"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder="971234567"
                       required
                     />
                   </div>

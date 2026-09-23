@@ -171,10 +171,11 @@ export class SettingsController {
     return this.settings.importSections(user.tenantId, file.buffer);
   }
 
-  // --- Designations (Admin-only) ------------------------------------------
+  // --- Designations (list is Admin/HR/Supervisor — the Recruitment "Role
+  // title" dropdown reads this list; everything else stays Admin-only) -----
 
   @Get('designations')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'HR', 'SUPERVISOR')
   listDesignations(@CurrentUser() user: AuthenticatedUser) {
     return this.settings.listDesignations(user.tenantId);
   }

@@ -215,6 +215,12 @@ export default function PayrollPage() {
           <select className="input" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
             <option value="ZM">ZM — native (default)</option>
             <option value="NZ">NZ — native</option>
+            <option value="ZW">ZW — native (Zimbabwe)</option>
+            <option value="MW">MW — native (Malawi)</option>
+            <option value="ZA">ZA — native (South Africa)</option>
+            <option value="TZ">TZ — native (Tanzania)</option>
+            <option value="GB">GB — native (England/UK)</option>
+            <option value="FR">FR — native (France)</option>
             <option value="AU">AU — not yet built</option>
             <option value="US">US — partner-routed</option>
           </select>

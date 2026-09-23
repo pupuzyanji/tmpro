@@ -16,7 +16,7 @@ import {
   type EmployeeDetail,
 } from './types';
 import { formatMoney } from '@/lib/format';
-import { getCurrencies } from '@/lib/reference-data';
+import { COUNTRIES, countryName, getCurrencies } from '@/lib/reference-data';
 import { IconPencil, IconPlus, IconTrash } from '@/components/icons';
 
 interface StatusEntry {
@@ -59,6 +59,12 @@ interface JobEntry {
   departmentId: string | null;
   designationId: string | null;
   managerId: string | null;
+  // v020.A — absorbed from General Info's removed "Work" section.
+  sectionId: string | null;
+  sourceOfHire: string | null;
+  workPhone: string | null;
+  countryCode: string | null;
+  startDate: string | null;
   comment: string | null;
   effectiveDate: string;
 }
@@ -583,6 +589,15 @@ function JobHistoryCard({
     value: b.id,
     label: [b.townCity, b.country].filter(Boolean).join(', ') || b.name,
   }));
+  // Sections aren't filtered by the entry's Department here the way General
+  // Info's old Work card did — AddableList's add/edit form doesn't support
+  // one field's options reacting to another field's live value — so every
+  // section is listed, qualified with its department, to stay unambiguous.
+  const sectionOptions = org.sections.map((s) => ({
+    value: s.id,
+    label: `${s.name}${org.departments.find((d) => d.id === s.departmentId)?.name ? ` (${org.departments.find((d) => d.id === s.departmentId)?.name})` : ''}`,
+  }));
+  const countryOptions = COUNTRIES.map((c) => ({ value: c.code, label: `${c.name} (${c.code})` }));
 
   return (
     <AddableList<JobEntry>
@@ -594,6 +609,7 @@ function JobHistoryCard({
       addFields={[
         { name: 'locationBranchId', label: 'Location', type: 'select', options: branchOptions },
         { name: 'departmentId', label: 'Department', type: 'select', options: org.departments.map((d) => ({ value: d.id, label: d.name })) },
+        { name: 'sectionId', label: 'Section', type: 'select', options: sectionOptions },
         {
           name: 'designationId',
           label: 'Designation',
@@ -606,6 +622,10 @@ function JobHistoryCard({
           type: 'select',
           options: org.employees.filter((e) => e.id !== employeeId).map((e) => ({ value: e.id, label: `${e.firstName} ${e.lastName}` })),
         },
+        { name: 'sourceOfHire', label: 'Source of hire' },
+        { name: 'workPhone', label: 'Work phone' },
+        { name: 'countryCode', label: 'Country', type: 'select', options: countryOptions },
+        { name: 'startDate', label: 'Start date', type: 'date' },
         { name: 'effectiveDate', label: 'Effective date', type: 'date' },
         { name: 'comment', label: 'Comment', type: 'textarea', span2: true },
       ]}
@@ -615,8 +635,13 @@ function JobHistoryCard({
           body: JSON.stringify({
             locationBranchId: v.locationBranchId || undefined,
             departmentId: v.departmentId || undefined,
+            sectionId: v.sectionId || undefined,
             designationId: v.designationId || undefined,
             managerId: v.managerId || undefined,
+            sourceOfHire: v.sourceOfHire || undefined,
+            workPhone: v.workPhone || undefined,
+            countryCode: v.countryCode || undefined,
+            startDate: v.startDate || undefined,
             effectiveDate: v.effectiveDate || undefined,
             comment: v.comment || undefined,
           }),
@@ -630,8 +655,13 @@ function JobHistoryCard({
           body: JSON.stringify({
             locationBranchId: v.locationBranchId || undefined,
             departmentId: v.departmentId || undefined,
+            sectionId: v.sectionId || undefined,
             designationId: v.designationId || undefined,
             managerId: v.managerId || undefined,
+            sourceOfHire: v.sourceOfHire || undefined,
+            workPhone: v.workPhone || undefined,
+            countryCode: v.countryCode || undefined,
+            startDate: v.startDate || undefined,
             effectiveDate: v.effectiveDate || undefined,
             comment: v.comment || undefined,
           }),
@@ -642,8 +672,13 @@ function JobHistoryCard({
       editValuesFor={(row) => ({
         locationBranchId: row.locationBranchId ?? '',
         departmentId: row.departmentId ?? '',
+        sectionId: row.sectionId ?? '',
         designationId: row.designationId ?? '',
         managerId: row.managerId ?? '',
+        sourceOfHire: row.sourceOfHire ?? '',
+        workPhone: row.workPhone ?? '',
+        countryCode: row.countryCode ?? '',
+        startDate: toDateInput(row.startDate),
         effectiveDate: toDateInput(row.effectiveDate),
         comment: row.comment ?? '',
       })}
@@ -656,8 +691,13 @@ function JobHistoryCard({
         { header: 'Effective Date', render: (row) => fmtOrDash(row.effectiveDate) },
         { header: 'Location', render: (row) => row.location ?? '—' },
         { header: 'Department', render: (row) => (row.departmentId ? org.departments.find((d) => d.id === row.departmentId)?.name ?? '—' : '—') },
+        { header: 'Section', render: (row) => (row.sectionId ? org.sections.find((s) => s.id === row.sectionId)?.name ?? '—' : '—') },
         { header: 'Designation', render: (row) => (row.designationId ? org.designations.find((d) => d.id === row.designationId)?.title ?? '—' : '—') },
         { header: 'Reports To', render: (row) => (row.managerId ? personName(org.employees.find((e) => e.id === row.managerId)) : '—') },
+        { header: 'Source of Hire', render: (row) => row.sourceOfHire ?? '—' },
+        { header: 'Work Phone', render: (row) => row.workPhone ?? '—' },
+        { header: 'Country', render: (row) => (row.countryCode ? `${countryName(row.countryCode)} (${row.countryCode})` : '—') },
+        { header: 'Start Date', render: (row) => fmtOrDash(row.startDate) },
         { header: 'Comment', render: (row) => row.comment ?? '—' },
       ]}
     />

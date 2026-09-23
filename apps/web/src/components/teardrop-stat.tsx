@@ -3,6 +3,14 @@
 // brand gradient family, with the number/label centered in the hollow
 // middle. (Originally a rotated teardrop shape — kept the component name
 // and prop API so callers didn't need to change.)
+//
+// v020.A: optional `href` makes the whole tile a link (e.g. Headcount ->
+// /people) so every dashboard number leads somewhere, per the "all
+// dashboard info should be clickable" instruction — a plain `<a href="#…">`
+// works here too for a same-page anchor scroll (see the Admin "Pending
+// requests" ring on the dashboard).
+
+import Link from 'next/link';
 
 const TEARDROP_GRADIENTS = {
   cyan: ['#14B8F0', '#2B3AF5'],
@@ -21,26 +29,46 @@ export function TeardropStat({
   label,
   color = 'cyan',
   size = 'lg',
+  href,
 }: {
   value: number | string;
   label: string;
   color?: keyof typeof TEARDROP_GRADIENTS;
   size?: 'lg' | 'md';
+  href?: string;
 }) {
   const [from, to] = TEARDROP_GRADIENTS[color];
   const { outer, thickness, text } = SIZES[size];
   const inner = outer - thickness * 2;
+
+  const ring = (
+    <div
+      className={`flex shrink-0 items-center justify-center rounded-full shadow-card ${href ? 'transition-transform group-hover:scale-[1.04]' : ''}`}
+      style={{ width: outer, height: outer, background: `linear-gradient(135deg, ${from}, ${to})` }}
+    >
+      <div className="flex items-center justify-center rounded-full bg-white" style={{ width: inner, height: inner }}>
+        <span className={`${text} font-bold text-ink`}>{value}</span>
+      </div>
+    </div>
+  );
+  const labelEl = (
+    <p className={`text-xs font-semibold uppercase tracking-wide text-slate-500 ${href ? 'group-hover:text-brand-blue' : ''}`}>
+      {label}
+    </p>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="group flex flex-col items-center gap-2 text-center">
+        {ring}
+        {labelEl}
+      </Link>
+    );
+  }
   return (
     <div className="flex flex-col items-center gap-2 text-center">
-      <div
-        className="flex shrink-0 items-center justify-center rounded-full shadow-card"
-        style={{ width: outer, height: outer, background: `linear-gradient(135deg, ${from}, ${to})` }}
-      >
-        <div className="flex items-center justify-center rounded-full bg-white" style={{ width: inner, height: inner }}>
-          <span className={`${text} font-bold text-ink`}>{value}</span>
-        </div>
-      </div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      {ring}
+      {labelEl}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { MailModule } from './common/mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { LeaveModule } from './modules/leave/leave.module';
+import { TimesheetsModule } from './modules/timesheets/timesheets.module';
 import { RequisitionsModule } from './modules/requisitions/requisitions.module';
 import { PerformanceModule } from './modules/performance/performance.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
@@ -31,6 +32,7 @@ class HealthController {
     AuthModule,
     EmployeesModule,
     LeaveModule,
+    TimesheetsModule,
     RequisitionsModule,
     PerformanceModule,
     PayrollModule,

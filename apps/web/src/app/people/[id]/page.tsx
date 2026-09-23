@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { StatusBadge } from '@/components/status-badge';
+import { TabBar } from '@/components/tab-bar';
+import { IconUser, IconBriefcase, IconCalendar, IconDocument, IconNote, IconTarget, IconShield } from '@/components/icons';
 import { GeneralInfoTab } from './general-info-tab';
 import { JobTab } from './job-tab';
 import { PerformanceTab } from './performance-tab';
@@ -14,16 +16,38 @@ import { DocumentsTab } from './documents-tab';
 import { Field } from './shared';
 import type { EmployeeDetail } from './types';
 
-const TABS = ['General Info', 'Job', 'Leave', 'Documents', 'Notes', 'Performance', 'Permission'] as const;
-type Tab = (typeof TABS)[number];
+const TABS = [
+  { key: 'General Info', icon: <IconUser /> },
+  { key: 'Job', icon: <IconBriefcase /> },
+  { key: 'Leave', icon: <IconCalendar /> },
+  { key: 'Documents', icon: <IconDocument /> },
+  { key: 'Notes', icon: <IconNote /> },
+  { key: 'Performance', icon: <IconTarget /> },
+  { key: 'Permission', icon: <IconShield /> },
+] as const;
+type Tab = (typeof TABS)[number]['key'];
 
+// Dashboard entries (on-leave, pending requests, etc.) deep-link here with
+// ?tab=<name> so "clicking on more detail" actually lands on the relevant
+// tab instead of always opening to General Info. useSearchParams needs a
+// Suspense boundary around it in the app router, hence the wrapper below.
 export default function PersonPage() {
+  return (
+    <Suspense fallback={null}>
+      <PersonPageInner />
+    </Suspense>
+  );
+}
+
+function PersonPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session, ready, call, uploadWithFields } = useApi();
   const [person, setPerson] = useState<EmployeeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('General Info');
+  const tabParam = searchParams.get('tab');
+  const [tab, setTab] = useState<Tab>(TABS.some((t) => t.key === tabParam) ? (tabParam as Tab) : 'General Info');
   // Organization's configured currency — drives salary formatting on this
   // profile (General Info, Job → Compensation), same source as Payroll.
   const [currency, setCurrency] = useState<string | null>(null);
@@ -54,9 +78,10 @@ export default function PersonPage() {
   const name = `${person.firstName} ${person.lastName}`;
   const canEdit = session?.user.role === 'ADMIN' || session?.user.role === 'HR';
   // Documents diverges from the Admin-only rule everywhere else on this
-  // profile: upload/delete is also allowed for the employee managing their
-  // own documents (matches EmployeeDocumentsController on the API side).
-  const canEditDocuments = canEdit || session?.profile?.id === person.id;
+  // profile: uploading is also allowed for the employee adding to their own
+  // documents (matches EmployeeDocumentsController's assertCanAdd). Editing
+  // and deleting a document stay Admin/HR only, even on your own profile.
+  const canAddDocuments = canEdit || session?.profile?.id === person.id;
 
   return (
     <div className="space-y-6">
@@ -76,34 +101,33 @@ export default function PersonPage() {
         <StatusBadge status={person.status} kind="employee" />
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-              tab === t ? 'border-brand-blue text-brand-blue' : 'border-transparent text-slate-500 hover:text-ink'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <TabBar
+        items={TABS.map((t) => ({
+          key: t.key,
+          label: t.key,
+          icon: t.icon,
+          active: tab === t.key,
+          onClick: () => {
+            setTab(t.key);
+            // Keep the URL in sync so the tab survives a refresh/share, same
+            // as landing on it via a dashboard link — replace, not push, so
+            // clicking through tabs doesn't pile up in browser history.
+            router.replace(t.key === 'General Info' ? `/people/${id}` : `/people/${id}?tab=${encodeURIComponent(t.key)}`);
+          },
+        }))}
+      />
 
-      {tab === 'General Info' && (
-        <GeneralInfoTab
-          person={person}
-          onSaved={setPerson}
-          call={call}
-          canEdit={canEdit}
-          canEditSalary={canEdit}
-          currency={currency}
-        />
-      )}
+      {tab === 'General Info' && <GeneralInfoTab person={person} onSaved={setPerson} call={call} canEdit={canEdit} />}
       {tab === 'Job' && <JobTab person={person} onRefreshPerson={load} call={call} canEdit={canEdit} currency={currency} />}
       {tab === 'Leave' && <LeaveTab employeeId={person.id} call={call} />}
       {tab === 'Documents' && (
-        <DocumentsTab employeeId={person.id} call={call} uploadWithFields={uploadWithFields} canEdit={canEditDocuments} />
+        <DocumentsTab
+          employeeId={person.id}
+          call={call}
+          uploadWithFields={uploadWithFields}
+          canAdd={canAddDocuments}
+          canManage={canEdit}
+        />
       )}
       {tab === 'Notes' && <NotesTab />}
       {tab === 'Performance' && <PerformanceTab person={person} call={call} canEdit={canEdit} />}
@@ -139,7 +163,10 @@ const EDITABLE_ROLES = ['EMPLOYEE', 'SUPERVISOR', 'HR', 'ADMIN'] as const;
  *  who isn't Admin or HR, and disabled when looking at your own profile —
  *  the API blocks that too, so a tenant can't end up with zero Admins from
  *  one click. An employee with no login account yet has nothing to change,
- *  so the editor doesn't render for them either. */
+ *  so the editor doesn't render for them either — instead, below the role
+ *  section, Admin/HR get a "Generate Login" button (formerly the bulk
+ *  Settings → Employees action, now per-person here) that creates their
+ *  sign-in from their personal email, one shared default password. */
 function PermissionTab({
   employeeId,
   account,
@@ -159,10 +186,29 @@ function PermissionTab({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generated, setGenerated] = useState<{ email: string; role: string; defaultPassword: string } | null>(null);
+
+  // v023.A — Account email editor (login email, distinct from the
+  // employee's personal email on General Info → Personal Details).
+  const [accountEmail, setAccountEmail] = useState(account?.email ?? '');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailSaved, setEmailSaved] = useState(false);
+
+  // v023.A — "Reset password": emails a one-time link, no password ever
+  // shown here (unlike Generate Login's shared default, which the app
+  // already knows — this one the recipient sets themselves).
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
 
   useEffect(() => {
     setRole(account?.role ?? '');
   }, [account?.role]);
+
+  useEffect(() => {
+    setAccountEmail(account?.email ?? '');
+    setEmailSaved(false);
+  }, [account?.email]);
 
   async function save() {
     setSaving(true);
@@ -182,11 +228,92 @@ function PermissionTab({
     }
   }
 
+  async function saveAccountEmail() {
+    setSavingEmail(true);
+    setError(null);
+    setEmailSaved(false);
+    try {
+      const updated = await call<{ id: string; email: string; role: string }>(`/employees/${employeeId}/account-email`, {
+        method: 'PATCH',
+        body: JSON.stringify({ email: accountEmail }),
+      });
+      onSaved({ email: updated.email, role: updated.role });
+      setEmailSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not update the login email.');
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function generateLogin() {
+    setGenerating(true);
+    setError(null);
+    try {
+      const created = await call<{ id: string; email: string; role: string; defaultPassword: string }>(
+        `/employees/${employeeId}/generate-login`,
+        { method: 'POST' },
+      );
+      onSaved({ email: created.email, role: created.role });
+      setGenerated(created);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not generate a login.');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function resetPassword() {
+    setResettingPassword(true);
+    setError(null);
+    setResetSentTo(null);
+    try {
+      const result = await call<{ email: string }>(`/employees/${employeeId}/reset-password`, { method: 'POST' });
+      setResetSentTo(result.email);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not send a reset link.');
+    } finally {
+      setResettingPassword(false);
+    }
+  }
+
   const canEditRole = canEdit && !!account && !isSelf;
+  const canEditEmail = canEdit && !!account;
 
   return (
     <div className="card space-y-3">
-      <Field label="Account email" value={account?.email} />
+      {canEditEmail ? (
+        <div>
+          <label className="label" htmlFor="permission-account-email">
+            Account email
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="permission-account-email"
+              type="email"
+              className="input max-w-xs"
+              value={accountEmail}
+              onChange={(e) => {
+                setAccountEmail(e.target.value);
+                setEmailSaved(false);
+              }}
+            />
+            <button
+              className="btn-secondary py-1.5"
+              disabled={savingEmail || accountEmail.trim().toLowerCase() === account?.email.toLowerCase()}
+              onClick={saveAccountEmail}
+            >
+              {savingEmail ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+          {emailSaved && <p className="mt-1 text-xs text-emerald-600">Login email updated.</p>}
+          <p className="mt-1 text-xs text-slate-400">
+            This is the email they sign in with — separate from their personal email on General Info.
+          </p>
+        </div>
+      ) : (
+        <Field label="Account email" value={account?.email} />
+      )}
       {canEditRole ? (
         <div>
           <label className="label" htmlFor="permission-role">
@@ -211,22 +338,47 @@ function PermissionTab({
       ) : (
         <Field label="Role" value={account?.role} />
       )}
-      {!account && (
-        <p className="text-xs text-slate-400">This person doesn&apos;t have a login account yet.</p>
+      {!account && <p className="text-xs text-slate-400">This person doesn&apos;t have a login account yet.</p>}
+      {account && isSelf && canEdit && <p className="text-xs text-slate-400">You can&apos;t change your own role.</p>}
+
+      {!account && canEdit && (
+        <div className="flex justify-end pt-1">
+          <button className="btn-secondary" disabled={generating} onClick={generateLogin}>
+            {generating ? 'Generating…' : 'Generate Login'}
+          </button>
+        </div>
       )}
-      {account && isSelf && canEdit && (
-        <p className="text-xs text-slate-400">You can&apos;t change your own role.</p>
+
+      {account && canEdit && (
+        <div className="flex justify-end pt-1">
+          <button className="btn-secondary" disabled={resettingPassword} onClick={resetPassword}>
+            {resettingPassword ? 'Sending…' : 'Reset password'}
+          </button>
+        </div>
       )}
+
+      {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      {saved && <p className="text-xs text-emerald-600">Role updated.</p>}
+      {generated && (
+        <p className="rounded-md bg-emerald-50 p-3 text-xs text-emerald-800">
+          Login created — <span className="font-medium">{generated.email}</span> ·{' '}
+          <span className="badge bg-emerald-100 text-emerald-700">{generated.role}</span> · default password:{' '}
+          <span className="font-mono">{generated.defaultPassword}</span>. Pass this on to them yourself.
+        </p>
+      )}
+      {resetSentTo && (
+        <p className="rounded-md bg-emerald-50 p-3 text-xs text-emerald-800">
+          Password reset link sent to <span className="font-medium">{resetSentTo}</span>. It expires in 1 hour and
+          works once.
+        </p>
+      )}
+
       {canEditRole && (
-        <>
-          {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          {saved && <p className="text-xs text-emerald-600">Role updated.</p>}
-          <div className="flex justify-end pt-1">
-            <button className="btn-primary" disabled={saving || role === account?.role} onClick={save}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </>
+        <div className="flex justify-end pt-1">
+          <button className="btn-primary" disabled={saving || role === account?.role} onClick={save}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       )}
     </div>
   );

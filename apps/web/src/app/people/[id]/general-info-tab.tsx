@@ -3,18 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
-import { AddableList, Field, SectionHeader, nameOf, useOrgOptions } from './shared';
-import {
-  EMPLOYMENT_TYPES,
-  GENDERS,
-  MARITAL_STATUSES,
-  fmtOrDash,
-  toDateInput,
-  personName,
-  type EmployeeDetail,
-} from './types';
-import { BLOOD_GROUPS, COUNTRIES, countryName } from '@/lib/reference-data';
-import { formatMoney } from '@/lib/format';
+import { AddableList, Field, SectionHeader } from './shared';
+import { GENDERS, MARITAL_STATUSES, fmtOrDash, toDateInput, type EmployeeDetail } from './types';
+import { BLOOD_GROUPS, COUNTRIES } from '@/lib/reference-data';
 import { Avatar } from '@/components/avatar';
 import { IconUpload } from '@/components/icons';
 
@@ -41,35 +32,26 @@ interface Dependent {
   dateOfBirth: string | null;
 }
 
+// v020.A: the "Work" section that used to live here (Branch, Designation,
+// Department, Section, Reports to, Source of hire, Employment type, Work
+// phone, Location, Start date, Country, Annual salary) has moved entirely
+// onto the Job tab's "Job information" history log — see JobHistoryCard in
+// job-tab.tsx, which now carries every one of those fields as part of its
+// dated entries instead of General Info's single current-value card.
 export function GeneralInfoTab({
   person,
   onSaved,
   call,
   canEdit,
-  canEditSalary,
-  currency,
 }: {
   person: EmployeeDetail;
   onSaved: (p: EmployeeDetail) => void;
   call: ReturnType<typeof useApi>['call'];
   canEdit: boolean;
-  canEditSalary: boolean;
-  currency: string | null;
 }) {
-  const org = useOrgOptions();
-
   return (
     <div className="space-y-6">
       <BasicInfoCard person={person} onSaved={onSaved} call={call} canEdit={canEdit} />
-      <WorkCard
-        person={person}
-        onSaved={onSaved}
-        call={call}
-        canEdit={canEdit}
-        canEditSalary={canEditSalary}
-        org={org}
-        currency={currency}
-      />
       <PersonalDetailsCard person={person} onSaved={onSaved} call={call} canEdit={canEdit} />
       <WorkExperienceCard employeeId={person.id} call={call} canEdit={canEdit} />
       <EducationCard employeeId={person.id} call={call} canEdit={canEdit} />
@@ -324,221 +306,6 @@ function BasicInfoCard({
           <Field label="Health Insurance No." value={person.nhiId} />
           <Field label="Tax ID" value={person.taxId} />
           <Field label="Hobbies" value={person.hobbies} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Work --------------------------------------------------------------
-
-function WorkCard({
-  person,
-  onSaved,
-  call,
-  canEdit,
-  canEditSalary,
-  org,
-  currency,
-}: {
-  person: EmployeeDetail;
-  onSaved: (p: EmployeeDetail) => void;
-  call: ReturnType<typeof useApi>['call'];
-  currency: string | null;
-  canEdit: boolean;
-  canEditSalary: boolean;
-  org: ReturnType<typeof useOrgOptions>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({
-    branchId: person.branchId ?? '',
-    departmentId: person.departmentId ?? '',
-    sectionId: person.sectionId ?? '',
-    designationId: person.designationId ?? '',
-    managerId: person.managerId ?? '',
-    sourceOfHire: person.sourceOfHire ?? '',
-    employmentType: person.employmentType,
-    workPhone: person.workPhone ?? '',
-    location: person.location ?? '',
-    startDate: toDateInput(person.startDate),
-    countryCode: person.countryCode,
-    annualSalary: person.annualSalary?.toString() ?? '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const sectionsForDept = org.sections.filter((s) => s.departmentId === form.departmentId);
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      const body: Record<string, unknown> = {
-        branchId: form.branchId || undefined,
-        departmentId: form.departmentId || undefined,
-        sectionId: form.sectionId || undefined,
-        designationId: form.designationId || undefined,
-        managerId: form.managerId || undefined,
-        sourceOfHire: form.sourceOfHire || undefined,
-        employmentType: form.employmentType,
-        workPhone: form.workPhone || undefined,
-        location: form.location || undefined,
-        startDate: form.startDate || undefined,
-        countryCode: form.countryCode,
-      };
-      if (canEditSalary) body.annualSalary = form.annualSalary ? parseFloat(form.annualSalary) : undefined;
-      const updated = await call<EmployeeDetail>(`/employees/${person.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      onSaved({ ...person, ...updated });
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not save changes.');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="card space-y-4">
-      <SectionHeader title="Work" canEdit={canEdit} editing={editing} onEdit={() => setEditing(true)} />
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {editing ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <label className="label">Branch</label>
-            <select className="input" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>
-              <option value="">—</option>
-              {org.branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Designation</label>
-            <select className="input" value={form.designationId} onChange={(e) => setForm({ ...form, designationId: e.target.value })}>
-              <option value="">—</option>
-              {org.designations.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Department</label>
-            <select
-              className="input"
-              value={form.departmentId}
-              onChange={(e) => setForm({ ...form, departmentId: e.target.value, sectionId: '' })}
-            >
-              <option value="">—</option>
-              {org.departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Section</label>
-            <select className="input" value={form.sectionId} onChange={(e) => setForm({ ...form, sectionId: e.target.value })}>
-              <option value="">—</option>
-              {sectionsForDept.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Reports to</label>
-            <select className="input" value={form.managerId} onChange={(e) => setForm({ ...form, managerId: e.target.value })}>
-              <option value="">No manager</option>
-              {org.employees
-                .filter((e) => e.id !== person.id)
-                .map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.firstName} {e.lastName}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Source of hire</label>
-            <input className="input" value={form.sourceOfHire} onChange={(e) => setForm({ ...form, sourceOfHire: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">Employment type</label>
-            <select className="input" value={form.employmentType} onChange={(e) => setForm({ ...form, employmentType: e.target.value })}>
-              {EMPLOYMENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t.replace('_', ' ')}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Work phone</label>
-            <input className="input" value={form.workPhone} onChange={(e) => setForm({ ...form, workPhone: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">Location</label>
-            <input className="input" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">Start date</label>
-            <input type="date" className="input" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-          </div>
-          <div>
-            <label className="label">Country</label>
-            <select className="input" value={form.countryCode} onChange={(e) => setForm({ ...form, countryCode: e.target.value })}>
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name} ({c.code})
-                </option>
-              ))}
-            </select>
-          </div>
-          {canEditSalary && (
-            <div>
-              <label className="label">Annual salary</label>
-              <input
-                type="number"
-                className="input"
-                value={form.annualSalary}
-                onChange={(e) => setForm({ ...form, annualSalary: e.target.value })}
-              />
-            </div>
-          )}
-          <div className="flex gap-2 sm:col-span-2">
-            <button className="btn-primary" disabled={saving} onClick={save}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button className="btn-secondary" onClick={() => setEditing(false)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Branch" value={nameOf(org.branches, person.branchId, 'name')} />
-          <Field label="Department" value={person.department} />
-          <Field label="Section" value={nameOf(org.sections, person.sectionId, 'name')} />
-          <Field label="Designation" value={person.jobTitle} />
-          <Field label="Reports to" value={personName(person.manager)} />
-          <Field label="Source of hire" value={person.sourceOfHire} />
-          <Field label="Employment type" value={person.employmentType.replace('_', ' ')} />
-          <Field label="Work phone" value={person.workPhone} />
-          <Field label="Location" value={person.location} />
-          <Field label="Start date" value={fmtOrDash(person.startDate)} />
-          <Field label="Country" value={person.countryCode ? `${countryName(person.countryCode)} (${person.countryCode})` : null} />
-          {canEditSalary && (
-            <Field
-              label="Annual salary"
-              value={person.annualSalary != null ? formatMoney(person.annualSalary, currency) : null}
-            />
-          )}
         </div>
       )}
     </div>

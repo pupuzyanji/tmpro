@@ -1,4 +1,18 @@
-import { Body, Controller, ForbiddenException, Get, Headers, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ModuleGuard } from '../../common/guards/module.guard';
@@ -27,13 +41,16 @@ export class RequisitionsController {
     return this.requisitions.findAll(user.tenantId);
   }
 
+  // An Admin account created via the platform-admin "Add Tenant" flow has
+  // no linked employees row (see users.employeeId in schema.ts), so this no
+  // longer requires one — requestedById is nullable and RequisitionsService
+  // falls back to notifying every Admin/HR login when it's null.
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleGuard)
   @Roles('SUPERVISOR', 'ADMIN', 'HR')
   @RequiresModule('Recruitment')
   create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateRequisitionDto) {
-    if (!user.employeeId) throw new ForbiddenException('No employee profile on this account.');
-    return this.requisitions.create(user.tenantId, user.employeeId, dto);
+    return this.requisitions.create(user.tenantId, user.employeeId ?? null, dto);
   }
 
   @Post(':id/approve')
@@ -53,17 +70,60 @@ export class RequisitionsController {
     return this.requisitions.update(user.tenantId, id, dto);
   }
 
+  // Application Review (candidate ranking + document viewing) is scoped
+  // narrower than the rest of Recruitment — ADMIN/HR only, not Supervisor —
+  // per how the feature was specced.
   @Get(':id/candidates')
   @UseGuards(JwtAuthGuard, RolesGuard, ModuleGuard)
-  @Roles('ADMIN', 'SUPERVISOR', 'HR')
+  @Roles('ADMIN', 'HR')
   @RequiresModule('Recruitment')
   candidates(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
     return this.requisitions.listCandidates(user.tenantId, id);
   }
 
-  /** Public — a job candidate applying has no account yet. Tenant comes from the career-site header. */
+  /** "View" on a candidate's CV or cover letter in Application Review — same
+   *  DocumentFull shape (label/mimeType/dataUrl) the People profile's
+   *  Documents tab uses, so the frontend reuses the same viewer modal.
+   *  ?kind=resume (default) or coverLetter. */
+  @Get(':id/candidates/:candidateId/document')
+  @UseGuards(JwtAuthGuard, RolesGuard, ModuleGuard)
+  @Roles('ADMIN', 'HR')
+  @RequiresModule('Recruitment')
+  candidateDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('candidateId') candidateId: string,
+    @Query('kind') kind: string,
+  ) {
+    if (kind !== 'resume' && kind !== 'coverLetter') {
+      throw new BadRequestException('kind must be "resume" or "coverLetter".');
+    }
+    return this.requisitions.getCandidateDocument(user.tenantId, id, candidateId, kind);
+  }
+
+  /** Public — a job candidate applying has no account yet. Tenant comes from
+   *  the career-site header. Multipart: `cv` (required) and `coverLetter`
+   *  (optional) files, 2MB cap each, plus every other ApplyDto field as
+   *  form text (see ApplyDto's doc comment for why the repeatable sections
+   *  travel as JSON strings). */
   @Post(':id/apply')
-  apply(@Headers('x-tenant-slug') tenantSlug: string, @Param('id') id: string, @Body() dto: ApplyDto) {
-    return this.requisitions.apply(tenantSlug, id, dto);
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'cv', maxCount: 1 },
+        { name: 'coverLetter', maxCount: 1 },
+      ],
+      { limits: { fileSize: 2 * 1024 * 1024 } },
+    ),
+  )
+  apply(
+    @Headers('x-tenant-slug') tenantSlug: string,
+    @Param('id') id: string,
+    @Body() dto: ApplyDto,
+    @UploadedFiles() files: { cv?: Express.Multer.File[]; coverLetter?: Express.Multer.File[] },
+  ) {
+    const cv = files?.cv?.[0];
+    if (!cv) throw new BadRequestException('A CV upload is required.');
+    return this.requisitions.apply(tenantSlug, id, dto, cv, files?.coverLetter?.[0]);
   }
 }

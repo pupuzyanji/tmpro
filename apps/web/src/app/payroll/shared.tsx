@@ -108,6 +108,19 @@ export const STATUTORY_LABELS: Record<string, string> = {
   nhi: 'National Health Insurance (1% of Basic Pay)',
   accLevy: 'ACC Earner Levy',
   kiwiSaver: 'KiwiSaver',
+  // ZW
+  aidsLevy: 'AIDS Levy (3% of PAYE)',
+  nssa: 'NSSA Contribution',
+  // MW
+  pension: 'Pension Contribution',
+  // ZA
+  uif: 'UIF Contribution',
+  // TZ
+  nssf: 'NSSF Contribution',
+  // GB
+  nationalInsurance: 'National Insurance',
+  // FR
+  socialContributions: 'Social Contributions',
 };
 
 export function labelFor(map: Record<string, string>, key: string): string {

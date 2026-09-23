@@ -91,6 +91,11 @@ export const orgSignupRequests = pgTable('org_signup_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: varchar('name', { length: 160 }).notNull(),
   email: varchar('email', { length: 255 }).notNull(),
+  // v023.A — "Sign-up Here" form's Phone number field (country-code dropdown
+  // + local number, combined into one string, e.g. "+260 971234567").
+  // Nullable at the DB layer even though the current DTO always sends it, so
+  // pre-existing rows from before this column existed stay valid.
+  phone: varchar('phone', { length: 40 }),
   organisationName: varchar('organisation_name', { length: 200 }).notNull(),
   country: varchar('country', { length: 120 }).notNull(),
   staffComplement: integer('staff_complement').notNull(),
@@ -118,6 +123,14 @@ export const users = pgTable(
     // from the linked `employees` row instead).
     firstName: varchar('first_name', { length: 120 }),
     lastName: varchar('last_name', { length: 120 }),
+    // v023.A — Admin/HR "Reset password" (People profile > Permission tab):
+    // a single-use, time-limited token for the emailed reset link. Only the
+    // SHA-256 hash is stored (never the raw token — see
+    // EmployeesService.resetPassword()), since this needs to be looked up
+    // by exact value rather than compared the slow, salted way bcrypt
+    // compares actual passwords. Both null once unused/consumed/expired.
+    resetTokenHash: varchar('reset_token_hash', { length: 64 }),
+    resetTokenExpiresAt: timestamp('reset_token_expires_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [
@@ -130,6 +143,7 @@ export const users = pgTable(
     // match.
     uniqueIndex('users_tenant_email_uq').on(t.tenantId, t.email),
     index('users_tenant_idx').on(t.tenantId),
+    index('users_reset_token_idx').on(t.resetTokenHash),
   ],
 );
 
@@ -274,6 +288,12 @@ export const employees = pgTable(
     employmentType: employmentTypeEnum('employment_type').notNull().default('FULL_TIME'),
     workPhone: varchar('work_phone', { length: 40 }),
     location: varchar('location', { length: 160 }),
+    // Timesheets is opt-in per employee (v022.A) — an Admin/HR "allocates"
+    // it from Settings > Employees, same idea as enabledModules gating a
+    // whole tenant but one level down. Off by default: most tenants using
+    // this only need it for hourly/casual staff, not everyone. Checked by
+    // TimesheetsService.create, not just hidden in the UI.
+    timesheetsEnabled: boolean('timesheets_enabled').notNull().default(false),
 
     // Portrait photo — stored as a data URI (no object storage in this
     // scaffold yet); nullable, falls back to the initials avatar when unset.
@@ -376,6 +396,11 @@ export const employeeDocuments = pgTable(
     employeeId: uuid('employee_id').notNull().references(() => employees.id),
     category: employeeDocumentCategoryEnum('category').notNull(),
     label: varchar('label', { length: 200 }).notNull(),
+    /** Only set for category OTHER — one of the fixed HR document tags
+     *  (Passport, Visa/Work Permit, ... "Other") an Admin/HR uploader picks
+     *  at upload time. Null for CONTRACT/ID, and for OTHER documents
+     *  self-uploaded by an employee (the tag picker is Admin/HR-only). */
+    tag: varchar('tag', { length: 80 }),
     fileName: varchar('file_name', { length: 255 }).notNull(),
     mimeType: varchar('mime_type', { length: 100 }).notNull(),
     dataUrl: text('data_url').notNull(),
@@ -484,6 +509,17 @@ export const employeeJobHistory = pgTable(
     departmentId: uuid('department_id').references(() => departments.id),
     designationId: uuid('designation_id').references(() => designations.id),
     managerId: uuid('manager_id').references(() => employees.id),
+    // v020.A — absorbed from General Info's removed "Work" section, which
+    // now lives entirely here on Job Information; every field below is
+    // optional (an Admin updating just, say, Reports To on a given entry
+    // doesn't have to re-enter these every time) and denormalizes onto the
+    // live `employees` row the same way location/department/designation/
+    // manager already do.
+    sectionId: uuid('section_id').references(() => sections.id),
+    sourceOfHire: varchar('source_of_hire', { length: 120 }),
+    workPhone: varchar('work_phone', { length: 40 }),
+    countryCode: varchar('country_code', { length: 2 }),
+    startDate: timestamp('start_date'),
     comment: text('comment'),
     effectiveDate: timestamp('effective_date').defaultNow().notNull(),
     createdById: uuid('created_by_id').references(() => employees.id),
@@ -625,6 +661,54 @@ export const leaveRequests = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Module 2b — Timesheets (v022.A)
+// ---------------------------------------------------------------------------
+//
+// Structurally the same shape as leaveRequests just above: an employee
+// (who must have timesheetsEnabled — see employees.timesheetsEnabled)
+// submits an entry, their supervisor/Admin/HR approves or declines it.
+// "Add Weekly Timesheet" on the frontend is just several of these created
+// in one call (TimesheetsService.createMany), not a separate table.
+
+export const timesheetStatusEnum = pgEnum('timesheet_status', ['PENDING', 'APPROVED', 'DECLINED']);
+
+export const timesheets = pgTable(
+  'timesheets',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    employeeId: uuid('employee_id').notNull().references(() => employees.id),
+    date: timestamp('date').notNull(),
+    // "HH:mm" 24-hour strings (straight out of an <input type="time">) —
+    // paired with `date` to compute totalHours server-side. Not a `time`
+    // column: keeping them as the exact strings the form collected avoids
+    // any timezone-conversion surprise between what was typed and what's
+    // displayed back.
+    startTime: varchar('start_time', { length: 5 }).notNull(),
+    endTime: varchar('end_time', { length: 5 }).notNull(),
+    // Array of {start, end} "HH:mm" pairs — usually zero or one entry (a
+    // lunch break), but not capped at one.
+    breaks: jsonb('breaks').notNull().default([]),
+    // (end - start) minus all break durations, in hours — computed once at
+    // create/update time (TimesheetsService), not derived on every read.
+    totalHours: doublePrecision('total_hours').notNull(),
+    workSite: varchar('work_site', { length: 160 }),
+    position: varchar('position', { length: 160 }),
+    workType: varchar('work_type', { length: 60 }),
+    notes: text('notes'),
+    status: timesheetStatusEnum('status').notNull().default('PENDING'),
+    decidedById: uuid('decided_by_id').references(() => employees.id),
+    decidedAt: timestamp('decided_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('timesheets_tenant_idx').on(t.tenantId),
+    index('timesheets_tenant_employee_idx').on(t.tenantId, t.employeeId),
+    index('timesheets_tenant_status_idx').on(t.tenantId, t.status),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Module 3 — Requisitions (skeleton)
 // ---------------------------------------------------------------------------
 
@@ -654,7 +738,12 @@ export const requisitions = pgTable(
     headcount: integer('headcount').notNull().default(1),
     budget: doublePrecision('budget'),
     status: requisitionStatusEnum('status').notNull().default('DRAFT'),
-    requestedById: uuid('requested_by_id').notNull().references(() => employees.id),
+    // Nullable (v021.A follow-up) — an ADMIN account created via the
+    // platform-admin "Add Tenant" flow has no linked employees row (see the
+    // comment on users.employeeId), so it can't always satisfy a NOT NULL FK
+    // here. RequisitionsService.apply notifies all tenant Admin/HR logins
+    // instead of one hiring manager when this is null.
+    requestedById: uuid('requested_by_id').references(() => employees.id),
     approvedById: uuid('approved_by_id').references(() => employees.id),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     // --- Public careers-page fields --------------------------------------
@@ -673,6 +762,16 @@ export const requisitions = pgTable(
     // Set when status transitions to APPROVED (see RequisitionsService.approve) —
     // "Date" on the public job list/detail pages.
     publishedAt: timestamp('published_at'),
+    // v021.A — raised alongside the requisition-raising form's Employment
+    // Type/Location/Department/Date fields. requiredSkills is the job
+    // profile's skill list: shown to candidates on the public job page and,
+    // more importantly, what the AI ATS (see common/ats/ats.util.ts) scores
+    // every applicant against. targetStartDate is a recruiter-set planning
+    // date (when they'd like the seat filled), distinct from publishedAt
+    // (when the listing went live) — shown on the internal requisitions
+    // list, not the public careers page.
+    requiredSkills: text('required_skills').array().notNull().default([]),
+    targetStartDate: timestamp('target_start_date'),
   },
   (t) => [index('requisitions_tenant_idx').on(t.tenantId)],
 );
@@ -687,8 +786,50 @@ export const candidates = pgTable(
     lastName: varchar('last_name', { length: 120 }).notNull(),
     email: varchar('email', { length: 255 }).notNull(),
     stage: candidateStageEnum('stage').notNull().default('APPLIED'),
+    // Pre-v021.A field — a free-text resume link, from back when the public
+    // apply form had no real file upload. No longer written by new
+    // applications (see RequisitionsService.apply) but left in place so old
+    // rows don't lose data; superseded by resumeDataUrl below.
     resumeUrl: text('resume_url'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
+    // --- v021.A — expanded public application form -------------------------
+    phone: varchar('phone', { length: 40 }),
+    linkedinUrl: text('linkedin_url'),
+    expectedSalary: varchar('expected_salary', { length: 120 }),
+    noticePeriod: varchar('notice_period', { length: 120 }),
+    rightToWork: varchar('right_to_work', { length: 30 }),
+    howHeard: varchar('how_heard', { length: 60 }),
+    // Repeatable "add more" sections — each an array of small objects; no
+    // dedicated tables since these only ever get read back as a unit
+    // (candidate detail / ATS scoring), never queried or filtered on
+    // individually. Shape documented in ats.util.ts and the ApplyDto.
+    education: jsonb('education').notNull().default([]),
+    workExperience: jsonb('work_experience').notNull().default([]),
+    skills: text('skills').array().notNull().default([]),
+    // CV — required on every new application (assertMimeType in the
+    // controller); the three columns mirror employeeDocuments' pattern
+    // (fileName/mimeType/dataUrl as a base64 data URI, no object storage
+    // yet). resumeText is best-effort plain text pulled out of a PDF CV at
+    // apply time (see ats.util.ts's extractPdfText) — null if extraction
+    // failed or the CV was an image scan; only ever used for ATS matching,
+    // never rendered directly (the CV itself is what's shown to a reviewer).
+    resumeFileName: varchar('resume_file_name', { length: 255 }),
+    resumeMimeType: varchar('resume_mime_type', { length: 100 }),
+    resumeDataUrl: text('resume_data_url'),
+    resumeText: text('resume_text'),
+    // Cover letter — optional; same shape as the CV fields above.
+    coverLetterFileName: varchar('cover_letter_file_name', { length: 255 }),
+    coverLetterMimeType: varchar('cover_letter_mime_type', { length: 100 }),
+    coverLetterDataUrl: text('cover_letter_data_url'),
+    coverLetterText: text('cover_letter_text'),
+    // AI ATS result, computed once at apply time against the requisition's
+    // requiredSkills (see ats.util.ts#scoreCandidate) — 0-100, or null when
+    // the requisition had no required skills listed to score against.
+    // matchedSkills/missingSkills are the same list split by whether it was
+    // found; Application Review ranks candidates by atsScore desc.
+    atsScore: integer('ats_score'),
+    matchedSkills: text('matched_skills').array().notNull().default([]),
+    missingSkills: text('missing_skills').array().notNull().default([]),
   },
   (t) => [index('candidates_tenant_idx').on(t.tenantId)],
 );

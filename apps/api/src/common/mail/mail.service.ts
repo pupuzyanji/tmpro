@@ -26,7 +26,7 @@ export class MailService {
   private readonly from: string;
 
   constructor() {
-    this.from = process.env.SMTP_FROM || 'tmPro <notifications@tmpro.local>';
+    this.from = process.env.SMTP_FROM || 'Talent Notifications <notifications@tmpro.local>';
 
     if (process.env.SMTP_HOST) {
       this.transport = nodemailer.createTransport({

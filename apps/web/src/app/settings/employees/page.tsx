@@ -7,7 +7,7 @@ import { ApiError } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { StatusBadge } from '@/components/status-badge';
 import { CsvImportButton } from '@/components/csv-import-button';
-import { IconPlus, IconUsers } from '@/components/icons';
+import { IconPlus } from '@/components/icons';
 import { COUNTRIES } from '@/lib/reference-data';
 
 interface Employee {
@@ -20,6 +20,7 @@ interface Employee {
   department: string | null;
   status: string;
   managerId: string | null;
+  timesheetsEnabled: boolean;
 }
 interface Branch {
   id: string;
@@ -37,11 +38,6 @@ interface Section {
 interface Designation {
   id: string;
   title: string;
-}
-interface GenerateLoginsResult {
-  created: Array<{ employeeId: string; name: string; email: string; role: 'SUPERVISOR' | 'EMPLOYEE' }>;
-  skipped: Array<{ employeeId: string; name: string; reason: string }>;
-  defaultPassword: string;
 }
 
 const EMPTY_FORM = {
@@ -69,8 +65,6 @@ export default function EmployeesSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
-  const [generatingLogins, setGeneratingLogins] = useState(false);
-  const [loginsResult, setLoginsResult] = useState<GenerateLoginsResult | null>(null);
 
   function refresh() {
     return Promise.all([
@@ -128,15 +122,21 @@ export default function EmployeesSettingsPage() {
     }
   }
 
-  async function generateLogins() {
-    setGeneratingLogins(true);
-    setError(null);
+  // "Allocation" toggle for the Timesheets module (v022.A) — whether this
+  // employee can submit timesheet entries at all; the module itself is a
+  // tenant-wide on/off set by the platform admin, this is per-person within
+  // that. Optimistic update, rolled back on failure.
+  async function toggleTimesheets(employee: Employee) {
+    const next = !employee.timesheetsEnabled;
+    setEmployees((prev) => prev.map((e) => (e.id === employee.id ? { ...e, timesheetsEnabled: next } : e)));
     try {
-      setLoginsResult(await call<GenerateLoginsResult>('/employees/generate-logins', { method: 'POST' }));
+      await call(`/employees/${employee.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ timesheetsEnabled: next }),
+      });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not generate logins.');
-    } finally {
-      setGeneratingLogins(false);
+      setEmployees((prev) => prev.map((e) => (e.id === employee.id ? { ...e, timesheetsEnabled: !next } : e)));
+      setError(err instanceof ApiError ? err.message : 'Could not update timesheets access.');
     }
   }
 
@@ -164,13 +164,6 @@ export default function EmployeesSettingsPage() {
               { header: 'employmentType', example: 'FULL_TIME' },
             ]}
           />
-          <button
-            className="btn-secondary flex items-center gap-1.5 whitespace-nowrap py-1.5"
-            onClick={generateLogins}
-            disabled={generatingLogins}
-          >
-            <IconUsers /> {generatingLogins ? 'Generating…' : 'Generate logins'}
-          </button>
           <button className="btn-primary flex items-center gap-1.5 whitespace-nowrap py-1.5" onClick={() => setAdding(true)}>
             <IconPlus /> Add employee
           </button>
@@ -180,59 +173,8 @@ export default function EmployeesSettingsPage() {
         Import columns: employeeCode, firstName, lastName, jobTitle, branch, department, section, designation,
         employmentType, sourceOfHire, workPhone, managerCode (an existing employee&apos;s employeeCode), countryCode.
       </p>
-      <p className="text-xs text-slate-400">
-        &quot;Generate logins&quot; creates a sign-in for every employee who doesn&apos;t have one yet, using their
-        personal email (People profile → Personal Details) — Supervisor if anyone reports to them, Employee
-        otherwise — all sharing one default password you&apos;ll need to pass on yourself.
-      </p>
 
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-
-      {loginsResult && (
-        <div className="card space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">Logins generated</p>
-            <button className="text-xs text-slate-400 hover:text-slate-600" onClick={() => setLoginsResult(null)}>
-              Dismiss
-            </button>
-          </div>
-          {loginsResult.created.length > 0 ? (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Created ({loginsResult.created.length}) — default password:{' '}
-                <span className="font-mono text-ink">{loginsResult.defaultPassword}</span>
-              </p>
-              <ul className="space-y-1">
-                {loginsResult.created.map((c) => (
-                  <li key={c.employeeId} className="flex items-center justify-between text-xs">
-                    <span className="text-ink">{c.name}</span>
-                    <span className="text-slate-500">
-                      {c.email} · <span className="badge bg-slate-100 text-slate-600">{c.role}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-400">No new logins were needed.</p>
-          )}
-          {loginsResult.skipped.length > 0 && (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Skipped ({loginsResult.skipped.length})
-              </p>
-              <ul className="space-y-1">
-                {loginsResult.skipped.map((s) => (
-                  <li key={s.employeeId} className="flex items-center justify-between text-xs">
-                    <span className="text-ink">{s.name}</span>
-                    <span className="text-slate-400">{s.reason}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
 
       {adding && (
         <div className="card grid gap-3 sm:grid-cols-2">
@@ -355,6 +297,7 @@ export default function EmployeesSettingsPage() {
               <th className="px-5 py-3 font-medium">Title</th>
               <th className="px-5 py-3 font-medium">Department</th>
               <th className="px-5 py-3 font-medium">Status</th>
+              <th className="px-5 py-3 font-medium">Timesheets</th>
             </tr>
           </thead>
           <tbody>
@@ -373,6 +316,24 @@ export default function EmployeesSettingsPage() {
                 <td className="px-5 py-3 text-slate-600">{e.department ?? '—'}</td>
                 <td className="px-5 py-3">
                   <StatusBadge status={e.status} kind="employee" />
+                </td>
+                <td className="px-5 py-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={e.timesheetsEnabled}
+                    title={e.timesheetsEnabled ? 'Timesheets allocated — click to turn off' : 'Timesheets not allocated — click to turn on'}
+                    onClick={() => toggleTimesheets(e)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                      e.timesheetsEnabled ? 'bg-emerald-500' : 'bg-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        e.timesheetsEnabled ? 'translate-x-4' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
                 </td>
               </tr>
             ))}

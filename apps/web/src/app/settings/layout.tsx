@@ -1,8 +1,19 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApi } from '@/lib/use-api';
+import { TabBar } from '@/components/tab-bar';
+import {
+  IconBuilding,
+  IconMapPin,
+  IconGrid,
+  IconUsers,
+  IconTag,
+  IconCalendar,
+  IconGraduationCap,
+  IconMegaphone,
+  IconSitemap,
+} from '@/components/icons';
 
 // v019.A (follow-up): the HR role sees Settings too, but not the
 // Organization/Branches/Departments/Designations tabs — those stay
@@ -10,15 +21,15 @@ import { useApi } from '@/lib/use-api';
 // (SettingsController's per-method @Roles()). Everything else here
 // (Employees, Leave, Training, Announcements, Org Chart) is open to HR.
 const TABS = [
-  { href: '/settings/organization', label: 'Organization', adminOnly: true },
-  { href: '/settings/branches', label: 'Branches', adminOnly: true },
-  { href: '/settings/departments', label: 'Departments', adminOnly: true },
-  { href: '/settings/employees', label: 'Employees' },
-  { href: '/settings/designations', label: 'Designations', adminOnly: true },
-  { href: '/settings/leave', label: 'Leave' },
-  { href: '/settings/training', label: 'Training' },
-  { href: '/settings/announcements', label: 'Announcements' },
-  { href: '/settings/org-chart', label: 'Org Chart' },
+  { href: '/settings/organization', label: 'Organization', icon: <IconBuilding />, adminOnly: true },
+  { href: '/settings/branches', label: 'Branches', icon: <IconMapPin />, adminOnly: true },
+  { href: '/settings/departments', label: 'Departments', icon: <IconGrid />, adminOnly: true },
+  { href: '/settings/employees', label: 'Employees', icon: <IconUsers /> },
+  { href: '/settings/designations', label: 'Designations', icon: <IconTag />, adminOnly: true },
+  { href: '/settings/leave', label: 'Leave', icon: <IconCalendar /> },
+  { href: '/settings/training', label: 'Training', icon: <IconGraduationCap /> },
+  { href: '/settings/announcements', label: 'Announcements', icon: <IconMegaphone /> },
+  { href: '/settings/org-chart', label: 'Org Chart', icon: <IconSitemap /> },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
@@ -43,22 +54,15 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         <p className="text-sm text-slate-500">Define your organization structure — branches, departments, roles, and people.</p>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {tabs.map((t) => {
-          const active = pathname === t.href || (t.href !== '/settings/organization' && pathname.startsWith(t.href));
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                active ? 'border-brand-blue text-brand-blue' : 'border-transparent text-slate-500 hover:text-ink'
-              }`}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
+      <TabBar
+        items={tabs.map((t) => ({
+          key: t.href,
+          label: t.label,
+          icon: t.icon,
+          href: t.href,
+          active: pathname === t.href || (t.href !== '/settings/organization' && pathname.startsWith(t.href)),
+        }))}
+      />
 
       {onAdminOnlyTab ? (
         <p className="text-sm text-slate-500">

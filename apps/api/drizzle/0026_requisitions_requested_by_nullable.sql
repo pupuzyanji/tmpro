@@ -1,0 +1,1 @@
+ALTER TABLE "requisitions" ALTER COLUMN "requested_by_id" DROP NOT NULL;

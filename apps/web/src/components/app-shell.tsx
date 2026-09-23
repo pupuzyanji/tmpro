@@ -22,11 +22,12 @@ import {
   IconSettings,
   IconChevronRight,
   IconPalette,
+  IconClock,
 } from '@/components/icons';
 
-const PUBLIC_ROUTES = ['/login', '/register-organisation'];
-// Prefix-matched, not exact — /careers/[tenantSlug] and its job-detail page
-// are the actual public careers site; bare /careers just redirects into it.
+const PUBLIC_ROUTES = ['/login', '/register-organisation', '/reset-password'];
+// Prefix-matched, not exact — /careers is the cross-tenant job board,
+// /careers/[tenantSlug] and its job-detail page are one tenant's board.
 // /platform-admin isn't public (it has its own login+auth — see
 // lib/platform-auth.tsx) but it's never a tenant's own dashboard chrome:
 // it has its own minimal layout, same reasoning as excluding /careers.
@@ -135,6 +136,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   links.push({ href: '/people', label: 'People', icon: <IconUsers /> });
   if (hasModule('Leave & Attendance')) {
     links.push({ href: '/leave', label: 'Leave', icon: <IconCalendar /> });
+  }
+  // Visible to every role once the tenant has the module on — whether an
+  // individual actually has anything to do here is gated separately by
+  // their own timesheetsEnabled flag (see Settings > Employees), enforced
+  // server-side, not by hiding the nav link itself.
+  if (hasModule('Timesheets')) {
+    links.push({ href: '/timesheets', label: 'Timesheets', icon: <IconClock /> });
   }
   if (hasModule('Performance Management')) {
     links.push({ href: '/performance', label: 'Performance', icon: <IconTarget /> });

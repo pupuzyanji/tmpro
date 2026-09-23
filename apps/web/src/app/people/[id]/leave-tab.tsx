@@ -63,67 +63,82 @@ export function LeaveTab({ employeeId, call }: { employeeId: string; call: Retur
     <div className="space-y-4">
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {balances.map((b) => (
-          <div key={b.id} className="card">
-            <p className="label">{b.leaveType.name}</p>
-            <p className="text-2xl font-semibold text-ink">
-              {b.balanceDays} <span className="text-sm font-normal text-slate-500">days</span>
+      {/* Same Option 2 layout as the Leave sidebar page: history/filters
+          lead on the left, entitlements shrink into one compact list in a
+          slim right-hand panel instead of a row of stat cards. Below `lg`
+          this just stacks, entitlements after the request history. */}
+      <div className="grid items-start gap-6 lg:grid-cols-[1fr_260px]">
+        <div className="space-y-4">
+          <div className="card flex flex-wrap items-end gap-3">
+            <div>
+              <label className="label">Year</label>
+              <select className="input" value={year} onChange={(e) => setYear(e.target.value)}>
+                <option value="ALL">All years</option>
+                {years.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Status</label>
+              <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="ALL">All statuses</option>
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Policy</label>
+              <select className="input" value={policy} onChange={(e) => setPolicy(e.target.value)}>
+                <option value="ALL">All policies</option>
+                {policies.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="pb-2 text-sm text-slate-500">
+              {filtered.length} of {requests.length} request{requests.length === 1 ? '' : 's'}
             </p>
           </div>
-        ))}
-        {balances.length === 0 && <p className="text-sm text-slate-500">No leave balances on file.</p>}
-      </div>
 
-      <div className="card flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label">Year</label>
-          <select className="input" value={year} onChange={(e) => setYear(e.target.value)}>
-            <option value="ALL">All years</option>
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
+          <div className="space-y-2">
+            {filtered.map((r) => (
+              <div key={r.id} className="card flex items-center justify-between">
+                <p className="text-sm text-ink">
+                  {r.leaveType.name} · {r.days} days · {fmtOrDash(r.startDate)} – {fmtOrDash(r.endDate)}
+                </p>
+                <StatusBadge status={r.status} />
+              </div>
             ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Status</label>
-          <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="ALL">All statuses</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Policy</label>
-          <select className="input" value={policy} onChange={(e) => setPolicy(e.target.value)}>
-            <option value="ALL">All policies</option>
-            {policies.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p className="pb-2 text-sm text-slate-500">
-          {filtered.length} of {requests.length} request{requests.length === 1 ? '' : 's'}
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        {filtered.map((r) => (
-          <div key={r.id} className="card flex items-center justify-between">
-            <p className="text-sm text-ink">
-              {r.leaveType.name} · {r.days} days · {fmtOrDash(r.startDate)} – {fmtOrDash(r.endDate)}
-            </p>
-            <StatusBadge status={r.status} />
+            {filtered.length === 0 && <p className="text-sm text-slate-500">No leave requests match these filters.</p>}
           </div>
-        ))}
-        {filtered.length === 0 && <p className="text-sm text-slate-500">No leave requests match these filters.</p>}
+        </div>
+
+        <div className="card">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Leave entitlements</p>
+          {balances.length === 0 ? (
+            <p className="text-xs text-slate-400">No leave balances on file.</p>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {balances.map((b) => (
+                <div key={b.id} className="flex items-baseline justify-between gap-2 py-2">
+                  <span className="text-xs leading-snug text-slate-500">{b.leaveType.name}</span>
+                  <span className="whitespace-nowrap text-sm font-semibold text-ink">
+                    {b.balanceDays}
+                    <span className="text-[10px] font-medium text-slate-400"> d</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

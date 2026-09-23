@@ -19,6 +19,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto, UpdateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeRoleDto } from './dto/update-employee-role.dto';
+import { UpdateAccountEmailDto } from './dto/update-account-email.dto';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -92,6 +93,31 @@ export class EmployeesController {
   @Roles('ADMIN', 'HR')
   generateLogins(@CurrentUser() user: AuthenticatedUser) {
     return this.employees.generateLogins(user.tenantId);
+  }
+
+  /** Single-employee "Generate Login" — People profile → Permission tab,
+   *  below the role editor. Same rules as the bulk path above, applied to
+   *  just this one person. */
+  @Post(':id/generate-login')
+  @Roles('ADMIN', 'HR')
+  generateLogin(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.employees.generateLogin(user.tenantId, id);
+  }
+
+  /** People profile → Permission tab's "Reset password" — the counterpart
+   *  to Generate Login above for someone who already has an account. Emails
+   *  a one-time reset link; see EmployeesService.resetPassword(). */
+  @Post(':id/reset-password')
+  @Roles('ADMIN', 'HR')
+  resetPassword(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.employees.resetPassword(user.tenantId, id);
+  }
+
+  /** People profile → Permission tab's "Account email" editor (v023.A). */
+  @Patch(':id/account-email')
+  @Roles('ADMIN', 'HR')
+  updateAccountEmail(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateAccountEmailDto) {
+    return this.employees.updateAccountEmail(user.tenantId, id, dto.email);
   }
 
   /** Portrait photo — Settings → Employees setup, or the People profile edit.

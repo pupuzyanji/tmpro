@@ -1,13 +1,14 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApi } from '@/lib/use-api';
+import { TabBar } from '@/components/tab-bar';
+import { IconDollar, IconAdjustments, IconShield } from '@/components/icons';
 
 const TABS = [
-  { href: '/payroll', label: 'Pay Runs' },
-  { href: '/payroll/adjustments', label: 'Additions & Deductions' },
-  { href: '/payroll/submissions', label: 'Regulatory Submission' },
+  { href: '/payroll', label: 'Pay Runs', icon: <IconDollar /> },
+  { href: '/payroll/adjustments', label: 'Additions & Deductions', icon: <IconAdjustments /> },
+  { href: '/payroll/submissions', label: 'Regulatory Submission', icon: <IconShield /> },
 ];
 
 /** Payroll's tab nav (Admin/HR) — Employees/Supervisors just see their own
@@ -29,22 +30,15 @@ export default function PayrollLayout({ children }: { children: React.ReactNode 
         <h1 className="text-xl font-semibold text-ink">Payroll</h1>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {TABS.map((t) => {
-          const active = pathname === t.href || (t.href !== '/payroll' && pathname.startsWith(t.href));
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                active ? 'border-brand-blue text-brand-blue' : 'border-transparent text-slate-500 hover:text-ink'
-              }`}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
+      <TabBar
+        items={TABS.map((t) => ({
+          key: t.href,
+          label: t.label,
+          icon: t.icon,
+          href: t.href,
+          active: pathname === t.href || (t.href !== '/payroll' && pathname.startsWith(t.href)),
+        }))}
+      />
 
       {children}
     </div>

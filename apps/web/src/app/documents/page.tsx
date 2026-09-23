@@ -2,16 +2,35 @@
 
 import { useApi } from '@/lib/use-api';
 import { DocumentsTab } from '@/app/people/[id]/documents-tab';
+import { AdminDocumentsBrowser } from './admin-documents';
 
-/** Self-service "My Documents" — the same Contract/ID/Other document slots
- *  as the People profile's Documents tab, scoped to the signed-in user's
- *  own employee record. Anyone without a linked employee profile (e.g. an
- *  Admin account with no employee record) gets an explanatory message
- *  instead, since there's nothing to scope the documents to. */
+/** Documents sidebar item. Admin/HR get the tenant-wide browser — every
+ *  document on file, across every employee, grouped by tag — since they're
+ *  the roles responsible for the records rather than a set of documents of
+ *  their own. Everyone else gets the self-service "My Documents" view: the
+ *  same Contract/ID/Other slots as the People profile's Documents tab,
+ *  scoped to their own employee record. An Admin/HR account with no linked
+ *  employee profile of its own simply has nothing extra to show below the
+ *  tenant-wide browser. */
 export default function DocumentsPage() {
   const { session, ready, call, uploadWithFields } = useApi();
 
   if (!ready) return null;
+
+  const role = session?.user.role;
+  if (role === 'ADMIN' || role === 'HR') {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-xl font-semibold text-ink">Documents</h1>
+          <p className="text-sm text-slate-500">
+            Every document on file for the organization, grouped by tag. Expand a tag to see who it belongs to.
+          </p>
+        </div>
+        <AdminDocumentsBrowser />
+      </div>
+    );
+  }
 
   const employeeId = session?.profile?.id;
   if (!employeeId) {
@@ -19,8 +38,7 @@ export default function DocumentsPage() {
       <div className="space-y-2">
         <h1 className="text-xl font-semibold text-ink">My Documents</h1>
         <p className="text-sm text-slate-500">
-          This account isn&apos;t linked to an employee profile, so there are no personal documents to show here. An
-          Admin can view and manage any employee&apos;s documents from their People profile.
+          This account isn&apos;t linked to an employee profile, so there are no personal documents to show here.
         </p>
       </div>
     );
@@ -35,7 +53,10 @@ export default function DocumentsPage() {
           Other) and view them inline.
         </p>
       </div>
-      <DocumentsTab employeeId={employeeId} call={call} uploadWithFields={uploadWithFields} canEdit />
+      {/* Only Admin/HR reach the tenant-wide browser above — everyone who
+          lands here is viewing their own record, so they can add documents
+          but editing/deleting is still Admin/HR only. */}
+      <DocumentsTab employeeId={employeeId} call={call} uploadWithFields={uploadWithFields} canAdd canManage={false} />
     </div>
   );
 }

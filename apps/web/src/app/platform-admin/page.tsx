@@ -7,6 +7,8 @@ import { usePlatformAuth } from '@/lib/platform-auth';
 import { ApiError } from '@/lib/api';
 import { MODULE_KEYS, type ModuleKey } from '@/lib/modules';
 import { LogoMark } from '@/components/logo';
+import { TabBar } from '@/components/tab-bar';
+import { IconCheckCircle, IconPauseCircle, IconClock } from '@/components/icons';
 import { TenantFormModal, EMPTY_TENANT_FORM, type TenantFormValues } from './tenant-form';
 
 interface Tenant {
@@ -25,6 +27,7 @@ interface PendingApplication {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   organisationName: string;
   country: string;
   staffComplement: number;
@@ -245,26 +248,16 @@ export default function PlatformAdminDashboardPage() {
           </button>
         </div>
 
-        <div className="mb-5 flex gap-1 border-b border-slate-200">
-          {(
+        <TabBar
+          className="mb-5"
+          items={(
             [
-              ['active', `Active Tenants (${activeTenants.length})`],
-              ['inactive', `Inactive Tenants (${inactiveTenants.length})`],
-              ['pending', `Pending Applications (${applications.length})`],
-            ] as [Tab, string][]
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              className={`-mb-px border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
-                tab === key ? 'border-accent text-ink' : 'border-transparent text-slate-500 hover:text-ink'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+              ['active', `Active Tenants (${activeTenants.length})`, <IconCheckCircle key="i" />],
+              ['inactive', `Inactive Tenants (${inactiveTenants.length})`, <IconPauseCircle key="i" />],
+              ['pending', `Pending Applications (${applications.length})`, <IconClock key="i" />],
+            ] as [Tab, string, React.ReactNode][]
+          ).map(([key, label, icon]) => ({ key, label, icon, active: tab === key, onClick: () => setTab(key) }))}
+        />
 
         {error && <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
@@ -372,6 +365,7 @@ export default function PlatformAdminDashboardPage() {
                     <td className="px-5 py-4 text-slate-600">
                       <p>{app.name}</p>
                       <p className="text-xs text-slate-400">{app.email}</p>
+                      {app.phone && <p className="text-xs text-slate-400">{app.phone}</p>}
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       {app.country} · {app.staffComplement} staff

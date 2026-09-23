@@ -249,3 +249,160 @@ export function IconPlay() {
     </Base>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Tab-bar icons (Option 5A: icon + label pill, applied across every tab bar
+// in the app — People detail, Payroll, Settings, Platform Admin). Reuses the
+// icons above wherever the concept already matches (IconBriefcase for Job,
+// IconCalendar for Leave, IconDocument for Documents, IconTarget for
+// Performance, IconUsers for Employees, IconGraduationCap for Training,
+// IconShield for both Permission and Regulatory Submission, IconDollar for
+// Pay Runs) and adds the handful this row of tabs needed that didn't exist
+// yet.
+
+/** Single-person mark — distinct from the group IconUsers — for a "General
+ *  Info" / profile tab. */
+export function IconUser() {
+  return (
+    <Base>
+      <circle cx="10" cy="6.8" r="3.3" />
+      <path d="M3.8 17c0-3.6 2.8-6 6.2-6s6.2 2.4 6.2 6" />
+    </Base>
+  );
+}
+
+/** Notes tab — a speech-bubble, matching the agreed Option 5A mark. */
+export function IconNote() {
+  return (
+    <Base>
+      <path d="M3 4h14v10.5H8.5L4.5 18v-3.5H3z" />
+    </Base>
+  );
+}
+
+/** Payroll — Additions & Deductions: sliders standing in for line-item
+ *  adjustments. */
+export function IconAdjustments() {
+  return (
+    <Base>
+      <path d="M4 5.5h12M4 10h12M4 14.5h12" />
+      <circle cx="8" cy="5.5" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="13.5" cy="10" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="14.5" r="1.6" fill="currentColor" stroke="none" />
+    </Base>
+  );
+}
+
+/** Settings — Organization. */
+export function IconBuilding() {
+  return (
+    <Base>
+      <rect x="4.5" y="2.5" width="9" height="15" rx="1" />
+      <path d="M13.5 8.5h2.3a1 1 0 0 1 1 1v7h-3.3" />
+      <path d="M7.2 5.8h.01M10.3 5.8h.01M7.2 8.8h.01M10.3 8.8h.01M7.2 11.8h.01M10.3 11.8h.01" />
+      <path d="M7.5 17.5v-3h3v3" />
+    </Base>
+  );
+}
+
+/** Settings — Branches (physical locations). */
+export function IconMapPin() {
+  return (
+    <Base>
+      <path d="M10 17.5s5.5-4.9 5.5-9.3a5.5 5.5 0 0 0-11 0c0 4.4 5.5 9.3 5.5 9.3z" />
+      <circle cx="10" cy="8.2" r="2" />
+    </Base>
+  );
+}
+
+/** Settings — Designations (role badges). */
+export function IconTag() {
+  return (
+    <Base>
+      <path d="M10.8 3H16a1 1 0 0 1 1 1v5.2a1 1 0 0 1-.3.7l-7 7a1 1 0 0 1-1.4 0l-5.2-5.2a1 1 0 0 1 0-1.4l7-7a1 1 0 0 1 .7-.3z" />
+      <circle cx="13.3" cy="6.7" r="1.1" fill="currentColor" stroke="none" />
+    </Base>
+  );
+}
+
+/** Settings — Announcements. */
+export function IconMegaphone() {
+  return (
+    <Base>
+      <path d="M3 8.5v3a1 1 0 0 0 1 1h1.3l1 4h2l-.8-4H9l6 3v-11L9 7.5H4a1 1 0 0 0-1 1z" />
+      <path d="M15 6.2a4 4 0 0 1 0 7.6" />
+    </Base>
+  );
+}
+
+/** Settings — Org Chart. */
+export function IconSitemap() {
+  return (
+    <Base>
+      <rect x="7" y="2.5" width="6" height="4" rx="1" />
+      <rect x="2.5" y="13" width="6" height="4" rx="1" />
+      <rect x="11.5" y="13" width="6" height="4" rx="1" />
+      <path d="M10 6.5v3M5.5 13v-3h9v3" />
+    </Base>
+  );
+}
+
+/** Platform Admin tenant list — Active. */
+export function IconCheckCircle() {
+  return (
+    <Base>
+      <circle cx="10" cy="10" r="7.3" />
+      <path d="M6.8 10.2l2.2 2.2 4.2-4.6" />
+    </Base>
+  );
+}
+
+/** Platform Admin tenant list — Inactive. */
+export function IconPauseCircle() {
+  return (
+    <Base>
+      <circle cx="10" cy="10" r="7.3" />
+      <path d="M8.2 7.3v5.4M11.8 7.3v5.4" />
+    </Base>
+  );
+}
+
+/** Platform Admin tenant list — Pending Applications. */
+export function IconClock() {
+  return (
+    <Base>
+      <circle cx="10" cy="10" r="7.3" />
+      <path d="M10 6v4.3l3 1.8" />
+    </Base>
+  );
+}
+
+/** Documents (Admin/HR tenant-wide browser) — Official ID group. */
+export function IconIdCard() {
+  return (
+    <Base>
+      <rect x="2.5" y="4.5" width="15" height="11" rx="1.6" />
+      <circle cx="7" cy="10" r="1.8" />
+      <path d="M4.5 13.5c.3-1.4 1.2-2.1 2.5-2.1s2.2.7 2.5 2.1" />
+      <path d="M11.5 8h4M11.5 10.5h4" />
+    </Base>
+  );
+}
+
+/** Documents (Admin/HR tenant-wide browser) — Other Files group. */
+export function IconFolder() {
+  return (
+    <Base>
+      <path d="M2.5 6a1 1 0 0 1 1-1h4l1.5 2h7.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1V6z" />
+    </Base>
+  );
+}
+
+/** Documents (Admin/HR tenant-wide browser) — expand/collapse a tag group. */
+export function IconChevronDown() {
+  return (
+    <Base>
+      <path d="M4.5 7.5l5.5 5.5 5.5-5.5" />
+    </Base>
+  );
+}

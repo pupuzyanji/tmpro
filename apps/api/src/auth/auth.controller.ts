@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { IdentifyDto } from './dto/identify.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { CompletePasswordResetDto } from './dto/reset-password.dto';
 import { RateLimitGuard } from './rate-limit.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser, type AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -29,5 +30,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   changePassword(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangePasswordDto) {
     return this.authService.changePassword(user, dto);
+  }
+
+  // v023.A — public completion of an Admin/HR-initiated "Reset password"
+  // (see EmployeesService.resetPassword()). Same rate-limit shape as
+  // identify(): keyed by IP (the body has no email, just a token), to slow
+  // down guessing at valid tokens.
+  @Post('reset-password')
+  @UseGuards(RateLimitGuard(10, 15 * 60_000))
+  resetPassword(@Body() dto: CompletePasswordResetDto) {
+    return this.authService.resetPasswordWithToken(dto);
   }
 }

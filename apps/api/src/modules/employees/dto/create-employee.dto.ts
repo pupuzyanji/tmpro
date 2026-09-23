@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export type EmploymentType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERN';
 export type Gender = 'MALE' | 'FEMALE' | 'OTHER' | 'PREFER_NOT_TO_SAY';
@@ -95,6 +95,15 @@ export class UpdateEmployeeDto extends OrgLinkedFieldsDto {
   @IsUUID()
   managerId?: string;
 
+  // Was missing from this DTO even though the Work section's Country field
+  // has always PATCHed it — with `whitelist: true` on the global
+  // ValidationPipe, that meant Country edits were silently dropped before
+  // reaching the service. Fixed here as part of folding Work into Job
+  // Information's history log (v020.A), which also denormalizes it.
+  @IsOptional()
+  @IsString()
+  countryCode?: string;
+
   @IsOptional()
   @IsString()
   location?: string;
@@ -110,6 +119,14 @@ export class UpdateEmployeeDto extends OrgLinkedFieldsDto {
   @IsOptional()
   @IsNumber()
   annualSalary?: number;
+
+  // Settings > Employees' Timesheets toggle (v022.A) — whether this
+  // employee is allocated the Timesheets feature (see
+  // employees.timesheetsEnabled in schema.ts). Admin/HR only, same as
+  // every other field on this DTO.
+  @IsOptional()
+  @IsBoolean()
+  timesheetsEnabled?: boolean;
 
   // --- Personal Details ---------------------------------------------------
 

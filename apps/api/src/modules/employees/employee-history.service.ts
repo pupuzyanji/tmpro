@@ -390,6 +390,11 @@ export class EmployeeHistoryService {
           departmentId: dto.departmentId,
           designationId: dto.designationId,
           managerId: dto.managerId,
+          sectionId: dto.sectionId,
+          sourceOfHire: dto.sourceOfHire,
+          workPhone: dto.workPhone,
+          countryCode: dto.countryCode,
+          startDate: dto.startDate ? new Date(dto.startDate) : undefined,
           comment: dto.comment,
           effectiveDate,
           createdById: createdById ?? undefined,
@@ -401,6 +406,11 @@ export class EmployeeHistoryService {
       departmentId: dto.departmentId,
       designationId: dto.designationId,
       managerId: dto.managerId,
+      sectionId: dto.sectionId,
+      sourceOfHire: dto.sourceOfHire,
+      workPhone: dto.workPhone,
+      countryCode: dto.countryCode,
+      startDate: dto.startDate,
     });
     return row;
   }
@@ -419,6 +429,11 @@ export class EmployeeHistoryService {
           ...(dto.departmentId !== undefined ? { departmentId: dto.departmentId } : {}),
           ...(dto.designationId !== undefined ? { designationId: dto.designationId } : {}),
           ...(dto.managerId !== undefined ? { managerId: dto.managerId } : {}),
+          ...(dto.sectionId !== undefined ? { sectionId: dto.sectionId } : {}),
+          ...(dto.sourceOfHire !== undefined ? { sourceOfHire: dto.sourceOfHire } : {}),
+          ...(dto.workPhone !== undefined ? { workPhone: dto.workPhone } : {}),
+          ...(dto.countryCode !== undefined ? { countryCode: dto.countryCode } : {}),
+          ...(dto.startDate !== undefined ? { startDate: new Date(dto.startDate) } : {}),
           ...(dto.comment !== undefined ? { comment: dto.comment } : {}),
           ...(dto.effectiveDate !== undefined ? { effectiveDate: new Date(dto.effectiveDate) } : {}),
         })
@@ -447,14 +462,19 @@ export class EmployeeHistoryService {
         departmentId: latest.departmentId ?? undefined,
         designationId: latest.designationId ?? undefined,
         managerId: latest.managerId ?? undefined,
+        sectionId: latest.sectionId ?? undefined,
+        sourceOfHire: latest.sourceOfHire ?? undefined,
+        workPhone: latest.workPhone ?? undefined,
+        countryCode: latest.countryCode ?? undefined,
+        startDate: latest.startDate ? latest.startDate.toISOString() : undefined,
       });
     }
     return row;
   }
 
   /** Admin-only. Same delete-then-re-derive pattern as the other three
-   *  history types, re-deriving location/department/designation/manager
-   *  from whichever job-info entry is now latest. */
+   *  history types, re-deriving every denormalized field from whichever
+   *  job-info entry is now latest. */
   async deleteJobHistory(tenantId: string, employeeId: string, id: string) {
     const [row] = await withTenant(tenantId, (tx) =>
       tx
@@ -484,6 +504,11 @@ export class EmployeeHistoryService {
         departmentId: latest.departmentId ?? undefined,
         designationId: latest.designationId ?? undefined,
         managerId: latest.managerId ?? undefined,
+        sectionId: latest.sectionId ?? undefined,
+        sourceOfHire: latest.sourceOfHire ?? undefined,
+        workPhone: latest.workPhone ?? undefined,
+        countryCode: latest.countryCode ?? undefined,
+        startDate: latest.startDate ? latest.startDate.toISOString() : undefined,
       });
     }
     return row;

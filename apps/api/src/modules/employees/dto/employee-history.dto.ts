@@ -110,6 +110,29 @@ export class AddJobHistoryDto {
   @IsUUID()
   managerId?: string;
 
+  // v020.A — absorbed from General Info's removed "Work" section (see
+  // AddJobHistoryDto's counterpart fields above for the pattern this
+  // follows: optional, denormalizes onto the employee record).
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceOfHire?: string;
+
+  @IsOptional()
+  @IsString()
+  workPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  countryCode?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
   @IsOptional()
   @IsDateString()
   effectiveDate?: string;
@@ -206,6 +229,26 @@ export class UpdateJobHistoryDto {
   @IsOptional()
   @IsUUID()
   managerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  sectionId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceOfHire?: string;
+
+  @IsOptional()
+  @IsString()
+  workPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  countryCode?: string;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
 
   @IsOptional()
   @IsDateString()

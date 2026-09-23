@@ -230,6 +230,32 @@ export default function LoginPage() {
 
       {/* Sign-in panel */}
       <div className="flex flex-1 flex-col bg-white px-6 py-10">
+        {/* Mobile hero summary — the marketing panel above is desktop-only
+            (hidden below `lg`), so a narrow viewport used to show none of
+            it: no logo, no headline, no feature list. This condenses the
+            same content (logo, headline, subhead, the four features) into a
+            banner shown only below `lg`, right above the sign-in form. */}
+        <div className="-mx-6 -mt-10 mb-8 px-6 pb-6 pt-8 text-white lg:hidden" style={{ background: HERO_BACKGROUND }}>
+          <Logo />
+          <h1 className="mt-4 text-xl font-extrabold leading-snug tracking-tight">
+            People Ops and Payroll that flex to every country you hire in.
+          </h1>
+          <p className="mt-2 text-xs leading-relaxed text-white/90">
+            Configurable payroll rulesets, leave policies, and statutory filings — native to your country today!
+            Built to extend to wherever you grow next.
+          </p>
+          <div className="mt-4 flex flex-col gap-2.5">
+            {FEATURES.map((f) => (
+              <div key={f.label} className="flex items-center gap-2.5">
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/15">
+                  {f.icon}
+                </span>
+                <span className="text-[11px] font-medium">{f.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="flex flex-1 flex-col items-center justify-center">
           <TrianglePortraits />
           <LogoHero className="mb-6" />
@@ -331,7 +357,7 @@ export default function LoginPage() {
           <p className="mt-4 text-center text-xs text-slate-400">
             New to tmPro?{' '}
             <a className="font-semibold text-ink underline decoration-slate-300 hover:text-brand-blue" href="/register-organisation">
-              Register your organisation
+              Sign-up Here
             </a>
           </p>
 

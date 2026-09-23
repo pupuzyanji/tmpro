@@ -8,6 +8,12 @@ export class CreateOrgSignupDto {
   @IsEmail()
   email!: string;
 
+  // Country-code dropdown + local number, combined into one string by the
+  // "Sign-up Here" form (v023.A) — e.g. "+260 971234567".
+  @IsString()
+  @MinLength(5)
+  phone!: string;
+
   @IsString()
   @MinLength(1)
   organisationName!: string;

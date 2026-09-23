@@ -6,6 +6,7 @@ import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { StatusBadge } from '@/components/status-badge';
+import { IconChevronDown } from '@/components/icons';
 import { fmt } from '@/lib/format';
 
 interface Employee {
@@ -19,11 +20,41 @@ interface Employee {
   startDate: string;
 }
 
+const PAGE_SIZE = 10;
+
+type SortKey = 'name' | 'jobTitle' | 'department' | 'status' | 'startDate';
+
+const COLUMNS: Array<{ key: SortKey; label: string }> = [
+  { key: 'name', label: 'Employee' },
+  { key: 'jobTitle', label: 'Job title' },
+  { key: 'department', label: 'Department' },
+  { key: 'status', label: 'Status' },
+  { key: 'startDate', label: 'Started' },
+];
+
+function sortValue(p: Employee, key: SortKey): string {
+  switch (key) {
+    case 'name':
+      return `${p.lastName} ${p.firstName}`.toLowerCase();
+    case 'jobTitle':
+      return (p.jobTitle ?? '').toLowerCase();
+    case 'department':
+      return (p.department ?? '').toLowerCase();
+    case 'status':
+      return p.status.toLowerCase();
+    case 'startDate':
+      return p.startDate;
+  }
+}
+
 export default function PeoplePage() {
   const { session, ready, call } = useApi();
   const [people, setPeople] = useState<Employee[]>([]);
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     if (!ready) return;
@@ -39,6 +70,27 @@ export default function PeoplePage() {
       `${p.firstName} ${p.lastName} ${p.jobTitle ?? ''} ${p.department ?? ''}`.toLowerCase().includes(q),
     );
   }, [people, query]);
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => sortValue(a, sortKey).localeCompare(sortValue(b, sortKey)) * dir);
+  }, [filtered, sortKey, sortDir]);
+
+  const pageCount = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  // Keep the current page in range whenever the search or sort shrinks/grows
+  // the result set (e.g. searching down to 3 rows while sitting on page 3).
+  const safePage = Math.min(page, pageCount);
+  const paged = useMemo(() => sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [sorted, safePage]);
+
+  function toggleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+    setPage(1);
+  }
 
   if (!ready) return null;
 
@@ -64,7 +116,10 @@ export default function PeoplePage() {
           className="input max-w-xs"
           placeholder="Search by name, title, department…"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
         />
       </div>
 
@@ -74,15 +129,24 @@ export default function PeoplePage() {
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
-              <th className="px-5 py-3 font-medium">Employee</th>
-              <th className="px-5 py-3 font-medium">Job title</th>
-              <th className="px-5 py-3 font-medium">Department</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 font-medium">Started</th>
+              {COLUMNS.map((c) => (
+                <th key={c.key} className="px-5 py-3 font-medium">
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 hover:text-ink"
+                    onClick={() => toggleSort(c.key)}
+                  >
+                    {c.label}
+                    <span className={`transition-transform ${sortKey === c.key ? 'text-ink' : 'text-slate-300'} ${sortKey === c.key && sortDir === 'desc' ? 'rotate-180' : ''}`}>
+                      <IconChevronDown />
+                    </span>
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p) => (
+            {paged.map((p) => (
               <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                 <td className="px-5 py-3">
                   <Link href={`/people/${p.id}`} className="flex items-center gap-3">
@@ -109,6 +173,35 @@ export default function PeoplePage() {
             )}
           </tbody>
         </table>
+
+        {sorted.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+            <p>
+              Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, sorted.length)} of {sorted.length}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={safePage <= 1}
+                onClick={() => setPage(safePage - 1)}
+              >
+                Previous
+              </button>
+              <span className="text-slate-400">
+                Page {safePage} of {pageCount}
+              </span>
+              <button
+                type="button"
+                className="btn-secondary px-2.5 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={safePage >= pageCount}
+                onClick={() => setPage(safePage + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

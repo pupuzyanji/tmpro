@@ -47,6 +47,10 @@ interface OnLeaveEntry {
 interface PendingRequestEntry {
   id: string;
   type: 'LEAVE' | 'REQUISITION';
+  // Only set for LEAVE entries — lets the row link to that person's Leave
+  // tab; a REQUISITION entry has no single employee to point at, so it
+  // links to Recruitment instead (see PendingRequestsPanel below).
+  employeeId?: string;
   employeeName: string;
   summary: string;
   createdAt: string;
@@ -225,11 +229,13 @@ export default function DashboardPage() {
             {pendingMyRequests.length > 0 ? (
               <ul className="mt-3 space-y-1.5">
                 {pendingMyRequests.slice(0, 4).map((r) => (
-                  <li key={r.id} className="flex items-center justify-between text-xs">
-                    <span className="text-ink">{r.leaveType.name}</span>
-                    <span className="text-slate-400">
-                      {r.days} day{r.days === 1 ? '' : 's'} · waiting on your supervisor
-                    </span>
+                  <li key={r.id}>
+                    <Link href="/leave" className="flex items-center justify-between text-xs hover:text-brand-blue">
+                      <span className="text-ink">{r.leaveType.name}</span>
+                      <span className="text-slate-400">
+                        {r.days} day{r.days === 1 ? '' : 's'} · waiting on your supervisor
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -268,7 +274,11 @@ export default function DashboardPage() {
                 const total = b.leaveType.defaultAnnualDays;
                 const taken = Math.max(0, total - b.balanceDays);
                 return (
-                  <div key={b.id} className="rounded-lg border border-slate-100 bg-white p-2 shadow-sm">
+                  <Link
+                    key={b.id}
+                    href="/leave"
+                    className="block rounded-lg border border-slate-100 bg-white p-2 shadow-sm hover:border-brand-blue/40"
+                  >
                     <p className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">{b.leaveType.name}</p>
                     <p className="text-sm font-semibold leading-tight text-ink">
                       {b.balanceDays} <span className="text-[9px] font-normal text-slate-500">days left</span>
@@ -276,7 +286,7 @@ export default function DashboardPage() {
                     <p className="text-[9px] text-slate-400">
                       {taken}/{total} taken
                     </p>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
@@ -293,13 +303,17 @@ function AdminSummaryPanel({ summary }: { summary: AdminSummary }) {
   return (
     <div className="space-y-6">
       <div className="card flex flex-wrap items-center justify-around gap-6 py-6">
-        <TeardropStat value={summary.headcount} label="Headcount" color="cyan" />
-        <TeardropStat value={summary.departmentCount} label="Departments" color="violet" />
-        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" />
+        <TeardropStat value={summary.headcount} label="Headcount" color="cyan" href="/people" />
+        <TeardropStat value={summary.departmentCount} label="Departments" color="violet" href="/settings/departments" />
+        {/* No single "all pending requests" page exists yet (leave and
+            requisition approvals live on separate pages) — this scrolls
+            down to the Pending Requests panel already on this page instead
+            of linking away. */}
+        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" href="#admin-pending-requests" />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <OnLeavePanel entries={summary.onLeave} />
-        <PendingRequestsPanel entries={summary.pendingRequests} />
+        <PendingRequestsPanel entries={summary.pendingRequests} id="admin-pending-requests" />
         <BirthdaysPanel entries={summary.birthdays} />
       </div>
     </div>
@@ -310,8 +324,8 @@ function SupervisorSummaryPanel({ summary }: { summary: SupervisorSummary }) {
   return (
     <div className="space-y-6">
       <div className="card flex flex-wrap items-center justify-around gap-6 py-5">
-        <TeardropStat value={summary.directReportsCount} label="Direct reports" color="cyan" size="md" />
-        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" size="md" />
+        <TeardropStat value={summary.directReportsCount} label="Direct reports" color="cyan" size="md" href="/people" />
+        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" size="md" href="/leave" />
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <OnLeavePanel entries={summary.onLeave} title="Team on/about to go on leave" />
@@ -322,9 +336,9 @@ function SupervisorSummaryPanel({ summary }: { summary: SupervisorSummary }) {
   );
 }
 
-function Panel({ title, children, empty }: { title: string; children: React.ReactNode; empty: boolean }) {
+function Panel({ title, children, empty, id }: { title: string; children: React.ReactNode; empty: boolean; id?: string }) {
   return (
-    <div className="card">
+    <div id={id} className="card scroll-mt-6">
       <p className="mb-3 text-sm font-semibold text-ink">{title}</p>
       {empty ? <p className="text-xs text-slate-400">Nothing to show.</p> : <ul className="space-y-2.5">{children}</ul>}
     </div>
@@ -335,16 +349,18 @@ function OnLeavePanel({ entries, title = 'Away or about to go on leave' }: { ent
   return (
     <Panel title={title} empty={entries.length === 0}>
       {entries.slice(0, 6).map((e) => (
-        <li key={`${e.employeeId}-${e.startDate}`} className="flex items-center justify-between text-xs">
-          <div>
-            <p className="font-medium text-ink">{e.name}</p>
-            <p className="text-slate-400">
-              {e.leaveType} · {monthDay(e.startDate)} – {monthDay(e.endDate)}
-            </p>
-          </div>
-          <span className={`badge ${e.state === 'ON_LEAVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-            {e.state === 'ON_LEAVE' ? 'On leave' : 'Upcoming'}
-          </span>
+        <li key={`${e.employeeId}-${e.startDate}`}>
+          <Link href={`/people/${e.employeeId}?tab=Leave`} className="flex items-center justify-between text-xs hover:opacity-80">
+            <div>
+              <p className="font-medium text-ink">{e.name}</p>
+              <p className="text-slate-400">
+                {e.leaveType} · {monthDay(e.startDate)} – {monthDay(e.endDate)}
+              </p>
+            </div>
+            <span className={`badge ${e.state === 'ON_LEAVE' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+              {e.state === 'ON_LEAVE' ? 'On leave' : 'Upcoming'}
+            </span>
+          </Link>
         </li>
       ))}
     </Panel>
@@ -355,19 +371,38 @@ function PendingRequestsPanel({
   entries,
   title = 'Pending requests',
   linkHref,
+  id,
 }: {
   entries: PendingRequestEntry[];
   title?: string;
   linkHref?: string;
+  id?: string;
 }) {
+  // Whole-panel `linkHref` (Supervisor -> /leave, where every entry is a
+  // team leave request anyway) and a per-row link both render an <a> —
+  // nesting the two is invalid HTML, so a row only gets its own link when
+  // the panel as a whole doesn't already have one (Admin's view, which also
+  // mixes in REQUISITION rows that need a different destination).
   const content = (
-    <Panel title={title} empty={entries.length === 0}>
-      {entries.slice(0, 6).map((e) => (
-        <li key={e.id} className="text-xs">
-          <p className="font-medium text-ink">{e.employeeName}</p>
-          <p className="text-slate-400">{e.summary}</p>
-        </li>
-      ))}
+    <Panel title={title} empty={entries.length === 0} id={id}>
+      {entries.slice(0, 6).map((e) =>
+        linkHref ? (
+          <li key={e.id} className="text-xs">
+            <p className="font-medium text-ink">{e.employeeName}</p>
+            <p className="text-slate-400">{e.summary}</p>
+          </li>
+        ) : (
+          <li key={e.id}>
+            <Link
+              href={e.type === 'LEAVE' && e.employeeId ? `/people/${e.employeeId}?tab=Leave` : '/requisitions'}
+              className="block text-xs hover:opacity-80"
+            >
+              <p className="font-medium text-ink">{e.employeeName}</p>
+              <p className="text-slate-400">{e.summary}</p>
+            </Link>
+          </li>
+        ),
+      )}
     </Panel>
   );
   if (!linkHref) return content;
@@ -382,13 +417,15 @@ function BirthdaysPanel({ entries, title = 'Upcoming birthdays' }: { entries: Bi
   return (
     <Panel title={title} empty={entries.length === 0}>
       {entries.slice(0, 6).map((e) => (
-        <li key={e.employeeId} className="flex items-center justify-between text-xs">
-          <span className="flex items-center gap-1.5 text-ink">
-            <IconUsers /> {e.name}
-          </span>
-          <span className="text-slate-400">
-            {monthDay(e.date)} · {daysOutLabel(e.daysOut)}
-          </span>
+        <li key={e.employeeId}>
+          <Link href={`/people/${e.employeeId}`} className="flex items-center justify-between text-xs hover:opacity-80">
+            <span className="flex items-center gap-1.5 text-ink">
+              <IconUsers /> {e.name}
+            </span>
+            <span className="text-slate-400">
+              {monthDay(e.date)} · {daysOutLabel(e.daysOut)}
+            </span>
+          </Link>
         </li>
       ))}
     </Panel>

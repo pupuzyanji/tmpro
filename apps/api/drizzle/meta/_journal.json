@@ -113,6 +113,41 @@
       "when": 1789566269178,
       "tag": "0019_many_moira_mactaggert",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1789883141491,
+      "tag": "0023_add_document_tag",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790069380807,
+      "tag": "0024_job_history_work_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790078092341,
+      "tag": "0025_recruitment_ats_expansion",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790081001795,
+      "tag": "0026_requisitions_requested_by_nullable",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790082559261,
+      "tag": "0027_timesheets",
+      "breakpoints": true
     }
   ]
 }

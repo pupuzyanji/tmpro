@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { and, eq, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'crypto';
 import { db, withTenant } from '../db/client';
 import { users, employees, candidates, tenants, organizationSettings } from '../db/schema';
 import { resolveTenantBySlug } from '../common/tenant/tenant.util';
@@ -9,6 +10,7 @@ import type { AuthenticatedUser } from '../common/decorators/current-user.decora
 import type { LoginDto } from './dto/login.dto';
 import type { IdentifyDto } from './dto/identify.dto';
 import type { ChangePasswordDto } from './dto/change-password.dto';
+import type { CompletePasswordResetDto } from './dto/reset-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -142,6 +144,32 @@ export class AuthService {
         .set({ passwordHash: await bcrypt.hash(dto.newPassword, 10) })
         .where(eq(users.id, user.userId));
     });
+    return { ok: true };
+  }
+
+  /** Public completion of an Admin/HR-initiated password reset (v023.A —
+   *  see EmployeesService.resetPassword(), which emails the link this token
+   *  comes from). Untenanted lookup by design: the token alone identifies
+   *  the account, and the tenant isn't known until it's resolved — same
+   *  reasoning, and the same identify_lookup RLS policy on `users`, as
+   *  identify() above. */
+  async resetPasswordWithToken(dto: CompletePasswordResetDto) {
+    const tokenHash = createHash('sha256').update(dto.token).digest('hex');
+
+    const [row] = await db.select().from(users).where(eq(users.resetTokenHash, tokenHash)).limit(1);
+
+    if (!row || !row.resetTokenExpiresAt || row.resetTokenExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException('This reset link is invalid or has expired — ask an Admin to send you a new one.');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await withTenant(row.tenantId, (tx) =>
+      tx
+        .update(users)
+        .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null })
+        .where(eq(users.id, row.id)),
+    );
+
     return { ok: true };
   }
 }

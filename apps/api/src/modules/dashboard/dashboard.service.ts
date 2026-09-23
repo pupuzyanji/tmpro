@@ -58,6 +58,10 @@ function pendingLeaveEntries(requests: LeaveWithJoins[]) {
     .map((r) => ({
       id: r.id,
       type: 'LEAVE' as const,
+      // Lets the dashboard link straight to this person's Leave tab — a
+      // requisition entry (below) has no matching employee, so it's left
+      // off that branch rather than given a bogus value.
+      employeeId: r.employeeId,
       employeeName: `${r.employee.firstName} ${r.employee.lastName}`,
       summary: `${r.leaveType.name} · ${r.days} day${r.days === 1 ? '' : 's'}`,
       createdAt: r.createdAt,
@@ -106,6 +110,7 @@ export class DashboardService {
         ...pendingReqs.map((r) => ({
           id: r.id,
           type: 'REQUISITION' as const,
+          employeeId: undefined as string | undefined,
           employeeName: r.title,
           summary: `Requisition · ${r.headcount} role${r.headcount === 1 ? '' : 's'}`,
           createdAt: r.createdAt,

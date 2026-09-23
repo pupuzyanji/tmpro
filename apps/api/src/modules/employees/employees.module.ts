@@ -9,6 +9,7 @@ import { EmployeePerformanceService } from './employee-performance.service';
 import { EmployeePerformanceController } from './employee-performance.controller';
 import { EmployeeDocumentsService } from './employee-documents.service';
 import { EmployeeDocumentsController } from './employee-documents.controller';
+import { DocumentsController } from './documents.controller';
 
 @Module({
   providers: [
@@ -24,6 +25,7 @@ import { EmployeeDocumentsController } from './employee-documents.controller';
     EmployeeHistoryController,
     EmployeePerformanceController,
     EmployeeDocumentsController,
+    DocumentsController,
   ],
   exports: [EmployeesService],
 })
