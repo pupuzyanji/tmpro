@@ -21,7 +21,25 @@ interface Tenant {
   seatsUsed: number;
   createdAt: string;
   admin: { firstName: string | null; lastName: string | null; email: string } | null;
+  // v025.A — subscription billing
+  plan: string | null;
+  band: string | null;
+  billingStatus: string;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  mrrUsd: number | null;
+  monthlyPriceUsd: number | null;
 }
+
+const BILLING_BADGE: Record<string, string> = {
+  TRIALING: 'bg-sky-50 text-sky-700',
+  ACTIVE: 'bg-emerald-50 text-emerald-700',
+  PAST_DUE: 'bg-red-50 text-red-700',
+  UNPAID: 'bg-red-50 text-red-700',
+  CANCELED: 'bg-slate-100 text-slate-600',
+  INCOMPLETE: 'bg-amber-50 text-amber-700',
+  MANUAL: 'bg-violet-50 text-violet-700',
+};
 
 interface PendingApplication {
   id: string;
@@ -248,6 +266,21 @@ export default function PlatformAdminDashboardPage() {
           </button>
         </div>
 
+        {/* v025.A — subscription revenue at a glance */}
+        <div className="mb-5 grid gap-3 sm:grid-cols-4">
+          {[
+            ['Monthly recurring revenue', `$${tenants.reduce((n, t) => n + (t.mrrUsd ?? 0), 0).toLocaleString('en-US')}`],
+            ['Paying tenants', String(tenants.filter((t) => t.billingStatus === 'ACTIVE' || t.billingStatus === 'PAST_DUE').length)],
+            ['On free trial', String(tenants.filter((t) => t.billingStatus === 'TRIALING').length)],
+            ['Payment failed', String(tenants.filter((t) => t.billingStatus === 'PAST_DUE').length)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+              <p className="mt-1 text-xl font-bold text-ink">{value}</p>
+            </div>
+          ))}
+        </div>
+
         <TabBar
           className="mb-5"
           items={(
@@ -270,6 +303,7 @@ export default function PlatformAdminDashboardPage() {
                   <th className="px-5 py-3">Tenant admin</th>
                   <th className="px-5 py-3">Modules</th>
                   <th className="px-5 py-3">Seats</th>
+                  <th className="px-5 py-3">Plan &amp; billing</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
@@ -289,6 +323,16 @@ export default function PlatformAdminDashboardPage() {
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       {t.seatsUsed} {t.seatCap != null ? `/ ${t.seatCap}` : '(unlimited)'}
+                    </td>
+                    <td className="px-5 py-4 text-slate-600">
+                      <p className="text-sm text-ink">
+                        {t.plan ? `${t.plan.charAt(0)}${t.plan.slice(1).toLowerCase()}` : '—'}
+                        {t.band ? ` · ${t.band.replace('B', '≤')}` : ''}
+                        {t.monthlyPriceUsd != null ? <span className="text-slate-400"> · ${t.monthlyPriceUsd}/mo</span> : null}
+                      </p>
+                      <span className={`badge mt-1 ${BILLING_BADGE[t.billingStatus] ?? 'bg-slate-100 text-slate-600'}`}>
+                        {t.billingStatus === 'MANUAL' ? 'Manual' : t.billingStatus.replace('_', ' ').toLowerCase()}
+                      </span>
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-2">
@@ -330,7 +374,7 @@ export default function PlatformAdminDashboardPage() {
                 ))}
                 {(tab === 'active' ? activeTenants : inactiveTenants).length === 0 && !error && (
                   <tr>
-                    <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-400">
+                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
                       {tab === 'active' ? 'No active tenants yet.' : 'No inactive tenants.'}
                     </td>
                   </tr>

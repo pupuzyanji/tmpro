@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { json, urlencoded } from 'express';
+import { json, raw, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -12,6 +12,10 @@ async function bootstrap() {
   // app supplies its own body parsers with a larger limit instead of
   // Nest's default ones (bodyParser: false here, then registered below).
   const app = await NestFactory.create(AppModule, { cors: true, bodyParser: false });
+  // v025.A — Stripe signs the exact bytes it sends, so its webhook route
+  // gets the raw body (a Buffer) instead of parsed JSON. Registered first:
+  // once raw() has read the body, json() below leaves that request alone.
+  app.use('/api/billing/webhook', raw({ type: 'application/json', limit: '1mb' }));
   app.use(json({ limit: '15mb' }));
   app.use(urlencoded({ extended: true, limit: '15mb' }));
   app.enableCors({ origin: true, credentials: true });

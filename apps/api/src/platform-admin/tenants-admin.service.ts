@@ -5,6 +5,7 @@ import { db, withTenant } from '../db/client';
 import { tenants, users } from '../db/schema';
 import { CORE_MODULE_KEYS } from '../common/modules/module-catalog';
 import { countSeatsUsed } from '../common/seats/seat-policy';
+import { monthlyPriceUsd } from '../common/billing/plans';
 import type { CreateTenantDto } from './dto/create-tenant.dto';
 import type { UpdateTenantDto } from './dto/update-tenant.dto';
 
@@ -173,6 +174,17 @@ export class TenantsAdminService {
       seatCap: t.seatCap,
       seatsUsed: await countSeatsUsed(t.id),
       createdAt: t.createdAt,
+      // v025.A — subscription billing.
+      plan: t.plan,
+      band: t.band,
+      billingStatus: t.billingStatus,
+      billingEmail: t.billingEmail,
+      country: t.country,
+      trialEndsAt: t.trialEndsAt,
+      currentPeriodEnd: t.currentPeriodEnd,
+      // Counts toward MRR only while actually paying (not trialing/lapsed).
+      mrrUsd: t.billingStatus === 'ACTIVE' || t.billingStatus === 'PAST_DUE' ? monthlyPriceUsd(t.plan, t.band) : 0,
+      monthlyPriceUsd: monthlyPriceUsd(t.plan, t.band),
       admin: admin
         ? { firstName: admin.firstName, lastName: admin.lastName, email: admin.email }
         : null,

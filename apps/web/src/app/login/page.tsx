@@ -356,8 +356,8 @@ export default function LoginPage() {
 
           <p className="mt-4 text-center text-xs text-slate-400">
             New to tmPro?{' '}
-            <a className="font-semibold text-ink underline decoration-slate-300 hover:text-brand-blue" href="/register-organisation">
-              Sign-up Here
+            <a className="font-semibold text-ink underline decoration-slate-300 hover:text-brand-blue" href="/pricing">
+              See plans &amp; start a free trial
             </a>
           </p>
 

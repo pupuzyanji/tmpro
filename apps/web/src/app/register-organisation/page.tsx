@@ -1,7 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { SelfServeSignup } from './self-serve-signup';
+import { isBandKey, isPlanKey } from '@/lib/billing-plans';
 import { apiFetch, ApiError } from '@/lib/api';
 import { Logo } from '@/components/logo';
 import { COUNTRIES, DIAL_CODE_OPTIONS } from '@/lib/reference-data';
@@ -31,7 +34,31 @@ const FEATURES: Array<{ key: string; label: string; icon: React.ReactNode }> = [
 
 const STAFF_HELP = "How many people will use tmPro — your whole headcount, not just admins.";
 
+// v025.A — this route now has two modes:
+//  - ?plan=…&band=… (from the pricing page): self-serve sign-up → Stripe
+//    Checkout — see self-serve-signup.tsx.
+//  - otherwise (incl. ?contact=1 from the pricing page's 200+ tier): the
+//    original "talk to us" lead form below, recorded for Platform Admin >
+//    Pending Applications.
 export default function RegisterOrganisationPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterOrganisationRouter />
+    </Suspense>
+  );
+}
+
+function RegisterOrganisationRouter() {
+  const params = useSearchParams();
+  const plan = params.get('plan');
+  const band = params.get('band');
+  if (params.get('contact') !== '1' && isPlanKey(plan) && isBandKey(band)) {
+    return <SelfServeSignup initialPlan={plan} initialBand={band} />;
+  }
+  return <ContactForm enterprise={params.get('contact') === '1'} />;
+}
+
+function ContactForm({ enterprise }: { enterprise: boolean }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [dialCode, setDialCode] = useState('+260');
@@ -141,10 +168,22 @@ export default function RegisterOrganisationPage() {
             </div>
           ) : (
             <>
-              <h1 className="text-xl font-semibold text-ink">Register your organisation</h1>
+              <h1 className="text-xl font-semibold text-ink">
+                {enterprise ? 'Talk to us about tmPro for 200+ employees' : 'Register your organisation'}
+              </h1>
               <p className="mt-1 text-sm text-slate-500">
-                A few details, and we&apos;ll take it from there — no credit card, no commitment.
+                {enterprise
+                  ? "Tell us about your organisation and we'll put together pricing and onboarding that fits."
+                  : "A few details, and we'll take it from there — no credit card, no commitment."}
               </p>
+              {!enterprise && (
+                <p className="mt-2 text-sm text-slate-500">
+                  Prefer to get started straight away?{' '}
+                  <Link href="/pricing" className="font-medium text-brand-blue underline">
+                    See plans &amp; start a free trial
+                  </Link>
+                </p>
+              )}
 
               <form onSubmit={onSubmit} className="card mt-6 space-y-5">
                 <div className="grid gap-4 sm:grid-cols-2">

@@ -17,6 +17,9 @@ interface AuthContextValue {
   loading: boolean;
   login: (tenantSlug: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** v025.A — after a plan change in Settings → Billing, refresh the
+   *  cached module list so the sidebar updates without signing out. */
+  updateEnabledModules: (modules: string[]) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -51,7 +54,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.localStorage.removeItem(STORAGE_KEY);
   }, []);
 
-  return <AuthContext.Provider value={{ session, loading, login, logout }}>{children}</AuthContext.Provider>;
+  const updateEnabledModules = useCallback((modules: string[]) => {
+    setSession((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, tenant: { ...prev.tenant, enabledModules: modules } };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // best-effort
+      }
+      return next;
+    });
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ session, loading, login, logout, updateEnabledModules }}>{children}</AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

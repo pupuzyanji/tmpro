@@ -13,6 +13,7 @@ import {
   IconGraduationCap,
   IconMegaphone,
   IconSitemap,
+  IconDollar,
 } from '@/components/icons';
 
 // v019.A (follow-up): the HR role sees Settings too, but not the
@@ -30,6 +31,8 @@ const TABS = [
   { href: '/settings/training', label: 'Training', icon: <IconGraduationCap /> },
   { href: '/settings/announcements', label: 'Announcements', icon: <IconMegaphone /> },
   { href: '/settings/org-chart', label: 'Org Chart', icon: <IconSitemap /> },
+  // v025.A — subscription plan, usage and card/invoices. Admin-only.
+  { href: '/settings/billing', label: 'Billing', icon: <IconDollar />, adminOnly: true },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

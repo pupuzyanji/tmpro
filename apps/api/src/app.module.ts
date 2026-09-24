@@ -16,6 +16,7 @@ import { TrainingModule } from './modules/training/training.module';
 import { CareersModule } from './modules/careers/careers.module';
 import { OrgSignupModule } from './modules/org-signup/org-signup.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { BillingModule } from './modules/billing/billing.module';
 
 @Controller()
 class HealthController {
@@ -43,6 +44,7 @@ class HealthController {
     CareersModule,
     OrgSignupModule,
     PlatformAdminModule,
+    BillingModule,
   ],
   controllers: [HealthController],
 })

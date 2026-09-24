@@ -77,6 +77,16 @@ export class AuthService {
     // whether the password would've been correct. See TenantsAdminService
     // and the Platform Admin "Inactive Tenants" tab.
     if (tenant.status === 'INACTIVE') {
+      // v025.A — a self-serve tenant whose subscription lapsed gets a
+      // billing-specific message rather than the generic one.
+      if (tenant.billingStatus === 'CANCELED' || tenant.billingStatus === 'UNPAID') {
+        throw new UnauthorizedException(
+          "This organisation's tmPro subscription has ended. Contact support to reactivate your workspace — your data is kept safe.",
+        );
+      }
+      if (tenant.billingStatus === 'INCOMPLETE') {
+        throw new UnauthorizedException('Sign-up for this organisation was not completed. Please start again from the pricing page.');
+      }
       throw new UnauthorizedException('This organisation is currently inactive. Please contact support.');
     }
 

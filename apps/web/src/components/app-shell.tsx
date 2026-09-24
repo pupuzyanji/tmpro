@@ -8,6 +8,7 @@ import { apiFetch } from '@/lib/api';
 import { Logo, LogoMark } from '@/components/logo';
 import { Avatar } from '@/components/avatar';
 import { ChangePasswordModal } from '@/components/change-password-modal';
+import { BillingBanner } from '@/components/billing-banner';
 import {
   IconGrid,
   IconUsers,
@@ -25,7 +26,7 @@ import {
   IconClock,
 } from '@/components/icons';
 
-const PUBLIC_ROUTES = ['/login', '/register-organisation', '/reset-password'];
+const PUBLIC_ROUTES = ['/login', '/register-organisation', '/register-organisation/success', '/reset-password', '/pricing'];
 // Prefix-matched, not exact — /careers is the cross-tenant job board,
 // /careers/[tenantSlug] and its job-detail page are one tenant's board.
 // /platform-admin isn't public (it has its own login+auth — see
@@ -282,6 +283,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <Avatar name={personName} size="sm" />
         </header>
+        <BillingBanner accessToken={session.accessToken} role={session.user.role} />
         <main className="mx-auto w-full max-w-5xl flex-1 px-8 py-8">{children}</main>
       </div>
     </div>

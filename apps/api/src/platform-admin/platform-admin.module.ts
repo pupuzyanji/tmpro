@@ -20,5 +20,7 @@ import { OrgSignupsAdminService } from './org-signups-admin.service';
   ],
   controllers: [PlatformAdminAuthController, TenantsAdminController, OrgSignupsAdminController],
   providers: [PlatformAdminAuthService, PlatformAdminJwtStrategy, TenantsAdminService, OrgSignupsAdminService],
+  // v025.A — BillingModule reuses TenantsAdminService.create() for self-serve sign-up.
+  exports: [TenantsAdminService],
 })
 export class PlatformAdminModule {}

@@ -58,7 +58,30 @@ export const tenants = pgTable('tenants', {
   // tenants that existed before this column was added are grandfathered to
   // ACTIVE by the 0021 migration's backfill.
   status: tenantStatusEnum('status').notNull().default('INACTIVE'),
+  // v025.A — subscription billing. `plan`/`band` decide `enabledModules` and
+  // `seatCap` for self-serve (Stripe-billed) tenants — see
+  // common/billing/plans.ts. `billingStatus` mirrors the Stripe subscription
+  // (TRIALING/ACTIVE/PAST_DUE/CANCELED/INCOMPLETE/UNPAID); MANUAL means the
+  // platform owner manages this tenant by hand and it is never charged
+  // through Stripe (every pre-v025 tenant, and 200+ "Contact us" customers).
+  plan: varchar('plan', { length: 20 }),
+  band: varchar('band', { length: 10 }),
+  billingStatus: varchar('billing_status', { length: 30 }).notNull().default('MANUAL'),
+  billingEmail: varchar('billing_email', { length: 255 }),
+  country: varchar('country', { length: 120 }),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+  trialEndsAt: timestamp('trial_ends_at'),
+  currentPeriodEnd: timestamp('current_period_end'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// v025.A — processed Stripe webhook event ids, so a redelivered event is
+// only ever applied once. Un-tenanted, like `tenants`.
+export const billingEvents = pgTable('billing_events', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  type: varchar('type', { length: 100 }).notNull(),
+  receivedAt: timestamp('received_at').defaultNow().notNull(),
 });
 
 // Platform-owner accounts (v018.A) — the tmPro operator, not a tenant's own

@@ -1639,3 +1639,97 @@ response and a re-fetch both show `HR`; logged in as that HR account and confirm
 `/payroll/runs`, and `/dashboard/admin-summary` all 200, and `PATCH` on that same HR
 user's own role 400s with "You cannot change your own role."; reverted the demo account
 back to `SUPERVISOR` afterward so the seed data is unchanged.
+
+## v025.A — 2026-09-25
+
+**Subscription billing (Stripe).** tmPro can now sell itself: a public pricing page,
+self-serve sign-up with a 7-day free trial, monthly card billing (Visa/Mastercard,
+credit or debit) through Stripe, and in-app plan management. **Requires a database
+migration** (`0032_subscription_billing.sql`) and, to switch billing on, Stripe keys —
+see `docs/BILLING-SETUP.md`. With no `STRIPE_SECRET_KEY` set, everything else behaves
+exactly as before.
+
+**Pricing model — flat monthly price by company size, not per seat.** Three plans ×
+four size bands, in USD, single source of truth `apps/api/src/common/billing/plans.ts`
+(mirrored in `apps/web/src/lib/billing-plans.ts`):
+
+| Employees | Core | Growth | Pro |
+|---|---|---|---|
+| 0–20 | $35 | $60 | $85 |
+| 21–50 | $85 | $125 | $175 |
+| 51–100 | $140 | $200 | $280 |
+| 101–200 | $240 | $300 | $420 |
+| 200+ | Contact us | Contact us | Contact us |
+
+Core = Employee Records, Leave & Attendance, Policies & Documents. Growth adds
+Timesheets, Payroll, Reports & Analytics. Pro adds Recruitment, Performance Management,
+Training & LMS. A plan sets the tenant's `enabledModules`; a band sets its `seatCap`
+(20/50/100/200) — the v018.A entitlement machinery (ModuleGuard, seat-cap check) is
+reused unchanged, billing just drives it.
+
+**Data model.** `tenants` gains `plan`, `band`, `billing_status`, `billing_email`,
+`country`, `stripe_customer_id`, `stripe_subscription_id`, `trial_ends_at`,
+`current_period_end`. `billing_status` mirrors the Stripe subscription (TRIALING /
+ACTIVE / PAST_DUE / UNPAID / CANCELED / INCOMPLETE) or is `MANUAL` — every tenant that
+existed before v025 is backfilled to MANUAL (never charged, still managed by hand from
+Platform Admin), as are 200+ customers. New `billing_events` table stores processed
+Stripe event ids so a redelivered webhook is applied once.
+
+**Flow.**
+- `/pricing` (public): band selector, three plan cards, full price grid, FAQ. Shows an
+  "≈ local price" estimate under each USD price, currency guessed from the browser's
+  timezone (no IP lookup), changeable via a picker; rates from `GET /billing/fx`
+  (open.er-api.com, cached 12h server-side, falls back to USD-only).
+- `/register-organisation?plan=…&band=…` → self-serve form (org, country, admin name,
+  email, phone, password) → `POST /billing/signup` creates the tenant (INACTIVE,
+  INCOMPLETE) + Admin login + Stripe customer and returns a Stripe Checkout URL
+  (subscription mode, 7-day trial, card required). The customer pays in local
+  currency where Stripe Adaptive Pricing supports it; tmPro always receives USD.
+- `/register-organisation/success` polls `GET /billing/checkout-status`, which also
+  finalizes the tenant itself if the webhook hasn't arrived — sign-in never waits on
+  webhook delivery. Welcome email to the customer, notification to us@bitware.app.
+- `/register-organisation?contact=1` (the 200+ tier) is the original lead form,
+  reworded for enterprise enquiries → Platform Admin > Pending Applications.
+- `POST /billing/webhook` (Stripe-signature verified; `main.ts` gives this one route
+  the raw body): `checkout.session.completed`, `customer.subscription.created/updated/
+  deleted`, `invoice.payment_failed`. PAST_DUE keeps access (banner + email while Stripe
+  retries); CANCELED/UNPAID switches the tenant to INACTIVE and login explains the
+  subscription has ended (data is kept).
+
+**In the app.**
+- Settings → **Billing** (Admin only): current plan/band/status, price, trial end or
+  next payment date, employees used vs. band limit, "Manage payment & invoices" (Stripe
+  Customer Portal: card, invoices, cancel at period end), and a plan × band grid for
+  one-click changes. Upgrades apply now and invoice the prorated difference
+  (`payment_behavior: error_if_incomplete`, so a declined card leaves the plan
+  unchanged); downgrades apply now with no refund, new price from the next invoice; a
+  band too small for current headcount is refused. The sidebar's modules refresh
+  without signing out (`updateEnabledModules` in auth-context). 200+ "Ask us" button
+  records a lead.
+- App-shell banner (Admin/HR): payment failed → near/at employee limit (≥90%) → trial
+  ending within 3 days.
+- Adding an employee beyond the band now says "Move up to the 21–50 employees size in
+  Settings → Billing" (MANUAL tenants keep the old "contact your administrator" text).
+- Login page's "Sign-up Here" now points to the pricing page.
+- Platform Admin: MRR / paying / trialing / payment-failed summary tiles, and a
+  "Plan & billing" column per tenant.
+
+**Setup tooling.** `npm run billing:setup` (apps/api) creates the three Stripe Products,
+twelve Prices (lookup keys `tmpro_<plan>_<band>`) and a Customer Portal configuration in
+whatever account `STRIPE_SECRET_KEY` points at; re-runnable. New env vars:
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIGURATION`,
+`BILLING_TRIAL_DAYS` (default 7). New dependency: `stripe` (^18).
+
+**Verified:** `tsc --noEmit` clean for both apps, `next build` clean. End to end against
+stripe-mock with locally-signed webhooks: setup script (all 15 objects accepted by
+Stripe's API schema); signup → Checkout URL; login refused before payment; bad
+signature → 400; checkout.session.completed → tenant ACTIVE, modules/seat cap from
+plan; duplicate event ignored; summary/banner/portal; plan change GROWTH/B20 → PRO/B50
+(9 modules, cap 50); portal-style subscription.updated (lookup key core_b100, past_due)
+→ CORE/B100 + PAST_DUE banner; invoice.payment_failed email; subscription.deleted →
+INACTIVE + "subscription has ended" at login; 21st employee on a 20 band refused with
+the upgrade message; non-Admin → 403 on /billing/summary. UI screenshots of pricing
+(Zambia and NZ visitors), sign-up, 200+ contact, Settings → Billing, banner and Platform
+Admin. **Not verified here:** a real Stripe account (test or live) — this sandbox can't
+reach api.stripe.com; do the test-mode walkthrough in `docs/BILLING-SETUP.md` before
+going live.

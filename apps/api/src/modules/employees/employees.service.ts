@@ -5,6 +5,7 @@ import { randomBytes, createHash } from 'crypto';
 import { db, withTenant } from '../../db/client';
 import { branches, departments, designations, sections, employees, tenants, users } from '../../db/schema';
 import { countSeatsUsed } from '../../common/seats/seat-policy';
+import { BANDS, isBandKey, nextBand } from '../../common/billing/plans';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type * as schema from '../../db/schema';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -222,11 +223,25 @@ export class EmployeesService {
    *  import will fail the rows past the cap individually, same as any other
    *  per-row validation error `importCsvRows` already surfaces. */
   private async assertSeatAvailable(tenantId: string): Promise<void> {
-    const [tenant] = await db.select({ seatCap: tenants.seatCap }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const [tenant] = await db
+      .select({ seatCap: tenants.seatCap, band: tenants.band, billingStatus: tenants.billingStatus })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
     if (!tenant || tenant.seatCap == null) return;
 
     const seatsUsed = await countSeatsUsed(tenantId);
     if (seatsUsed >= tenant.seatCap) {
+      // v025.A — a self-serve (Stripe-billed) tenant can lift its own cap by
+      // moving up a size band; point the Admin straight at that.
+      if (tenant.billingStatus !== 'MANUAL' && isBandKey(tenant.band)) {
+        const up = nextBand(tenant.band);
+        throw new BadRequestException(
+          up
+            ? `You've reached your plan's limit of ${tenant.seatCap} employees. Move up to the ${BANDS[up].label} size in Settings → Billing to add more.`
+            : `You've reached your plan's limit of ${tenant.seatCap} employees. Contact tmPro about the 200+ plan in Settings → Billing.`,
+        );
+      }
       throw new BadRequestException(
         `This organization has reached its seat cap (${tenant.seatCap}). Contact your tmPro administrator to add more.`,
       );
