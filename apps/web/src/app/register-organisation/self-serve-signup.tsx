@@ -230,8 +230,16 @@ export function SelfServeSignup({ initialPlan, initialBand }: { initialPlan: Pla
             <label className="flex items-start gap-2.5 text-sm text-slate-600">
               <input type="checkbox" className="mt-0.5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
               <span>
-                I agree to tmPro&apos;s terms of service and understand my card will be charged {formatUsd(price)} per month
-                after the {TRIAL_DAYS}-day trial unless I cancel.
+                I agree to tmPro&apos;s{' '}
+                <Link href="/terms-of-service" target="_blank" className="font-medium text-brand-blue underline">
+                  Terms of Service
+                </Link>{' '}
+                and{' '}
+                <Link href="/privacy-policy" target="_blank" className="font-medium text-brand-blue underline">
+                  Privacy Policy
+                </Link>
+                , and understand my card will be charged {formatUsd(price)} per month after the {TRIAL_DAYS}-day trial
+                unless I cancel.
               </span>
             </label>
 

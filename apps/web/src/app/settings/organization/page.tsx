@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApi } from '@/lib/use-api';
-import { ApiError } from '@/lib/api';
+import { ApiError, apiDownload } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import { COUNTRIES, getCurrencies, getTimezones } from '@/lib/reference-data';
-import { IconUpload } from '@/components/icons';
+import { IconDownload, IconUpload } from '@/components/icons';
 
 interface Organization {
   id: string | null;
@@ -84,7 +85,8 @@ export default function OrganizationSettingsPage() {
   if (!org) return null;
 
   return (
-    <div className="card max-w-2xl space-y-4">
+    <div className="max-w-2xl space-y-6">
+    <div className="card space-y-4">
       <div>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Company profile</h2>
         <p className="text-xs text-slate-400">Shown across the app — login screen, top bar, payslips, announcements.</p>
@@ -236,6 +238,55 @@ export default function OrganizationSettingsPage() {
         </button>
         {savedAt && <span className="text-xs text-slate-400">Saved.</span>}
       </div>
+    </div>
+    <ExportDataCard />
+    </div>
+  );
+}
+
+/** v027.A — Admin-only download of everything the organisation has in
+ *  tmPro (one CSV per table + uploaded files), as a ZIP. */
+function ExportDataCard() {
+  const { session } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function exportAll() {
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await apiDownload('/data-export', session?.accessToken ?? null, 'tmpro-export.zip');
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not create the export. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Export all data</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Download everything your organisation has in tmPro — employees, leave, timesheets, payroll, recruitment,
+          training and settings — as spreadsheet (CSV) files in a ZIP, with uploaded documents, photos and CVs
+          included. Passwords are never exported.
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          The file contains personal and pay information. Store it securely and share it only with people who need it.
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <button className="btn-secondary inline-flex items-center gap-2" disabled={busy} onClick={exportAll}>
+          <IconDownload />
+          {busy ? 'Preparing export…' : 'Export all data'}
+        </button>
+        {done && <span className="text-xs text-emerald-600">Download started.</span>}
+      </div>
+      {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     </div>
   );
 }

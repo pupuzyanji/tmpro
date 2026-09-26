@@ -9,6 +9,7 @@ import {
   employeeTypeHistory,
 } from '../../db/schema';
 import { EmployeesService } from './employees.service';
+import { forgetAccessCache } from '../../auth/account-security';
 import type {
   AddCompensationHistoryDto,
   AddJobHistoryDto,
@@ -62,6 +63,7 @@ export class EmployeeHistoryService {
         .returning(),
     );
     await this.employees.update(tenantId, employeeId, { status: dto.status });
+    forgetAccessCache(tenantId, employeeId);
     return row;
   }
 
@@ -94,6 +96,7 @@ export class EmployeeHistoryService {
         .limit(1),
     );
     if (latest) await this.employees.update(tenantId, employeeId, { status: latest.status });
+    forgetAccessCache(tenantId, employeeId);
     return row;
   }
 
@@ -128,6 +131,7 @@ export class EmployeeHistoryService {
         .limit(1),
     );
     if (latest) await this.employees.update(tenantId, employeeId, { status: latest.status });
+    forgetAccessCache(tenantId, employeeId);
     return row;
   }
 

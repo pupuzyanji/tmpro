@@ -129,7 +129,7 @@ export class BillingService {
       password: dto.password,
       enabledModules: PLANS[dto.plan].modules,
       seatCap: BANDS[dto.band].max,
-    });
+    }, { ownPassword: true });
 
     try {
       const customer = await stripe.customers.create({

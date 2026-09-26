@@ -10,6 +10,9 @@ export interface Session {
   tenant: { slug: string; name: string; enabledModules: string[] };
   user: { id: string; email: string; role: Role };
   profile: { id?: string; firstName?: string; lastName?: string } | null;
+  /** v027.A — signed in with a temporary password; the app only shows the
+   *  "choose a new password" screen until it's changed. */
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextValue {
@@ -20,6 +23,9 @@ interface AuthContextValue {
   /** v025.A — after a plan change in Settings → Billing, refresh the
    *  cached module list so the sidebar updates without signing out. */
   updateEnabledModules: (modules: string[]) => void;
+  /** v027.A — swap in the fresh token issued after a password change and
+   *  clear the must-change flag. */
+  passwordChanged: (accessToken: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -67,8 +73,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const passwordChanged = useCallback((accessToken: string) => {
+    setSession((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, accessToken, mustChangePassword: false };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // best-effort
+      }
+      return next;
+    });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ session, loading, login, logout, updateEnabledModules }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ session, loading, login, logout, updateEnabledModules, passwordChanged }}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { and, eq, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
@@ -11,10 +11,25 @@ import type { LoginDto } from './dto/login.dto';
 import type { IdentifyDto } from './dto/identify.dto';
 import type { ChangePasswordDto } from './dto/change-password.dto';
 import type { CompletePasswordResetDto } from './dto/reset-password.dto';
+import type { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { MailService } from '../common/mail/mail.service';
+import {
+  ACCESS_ENDED_MESSAGE,
+  LEGACY_SHARED_PASSWORD,
+  employeeAccessEnded,
+  forgetAccessCache,
+  issueResetToken,
+  resetLink,
+} from './account-security';
 
 @Injectable()
 export class AuthService {
-  constructor(private jwt: JwtService) {}
+  private readonly logger = new Logger(AuthService.name);
+
+  constructor(
+    private jwt: JwtService,
+    private mail: MailService,
+  ) {}
 
   /**
    * Identifier-first step: given only an email (matched case-insensitively —
@@ -107,6 +122,22 @@ export class AuthService {
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid email or password.');
 
+    // v027.A — people marked as having left (ALUMNI) can no longer sign in.
+    if (user.employeeId) {
+      forgetAccessCache(tenant.id, user.employeeId);
+      if (await employeeAccessEnded(tenant.id, user.employeeId)) {
+        throw new UnauthorizedException(ACCESS_ENDED_MESSAGE);
+      }
+    }
+
+    // v027.A — a generated temporary password, or the retired shared
+    // default, has to be replaced before anything else.
+    let mustChangePassword = user.mustChangePassword;
+    if (!mustChangePassword && dto.password === LEGACY_SHARED_PASSWORD) {
+      mustChangePassword = true;
+      await withTenant(tenant.id, (tx) => tx.update(users).set({ mustChangePassword: true }).where(eq(users.id, user.id)));
+    }
+
     const profile = await withTenant(tenant.id, async (tx) => {
       if (user.employeeId) {
         const [emp] = await tx.select().from(employees).where(eq(employees.id, user.employeeId as string)).limit(1);
@@ -119,15 +150,14 @@ export class AuthService {
       return null;
     });
 
-    const accessToken = await this.jwt.signAsync({
-      sub: user.id,
-      tenantId: tenant.id,
-      role: user.role,
-      employeeId: user.employeeId ?? null,
-    });
+    const accessToken = await this.signToken(
+      { id: user.id, tenantId: tenant.id, role: user.role, employeeId: user.employeeId ?? null },
+      mustChangePassword,
+    );
 
     return {
       accessToken,
+      mustChangePassword,
       // enabledModules travels with the session so the sidebar can hide
       // nav links for modules this tenant doesn't have (see AppShell) —
       // cosmetic only, ModuleGuard on the API side is the real gate.
@@ -137,11 +167,30 @@ export class AuthService {
     };
   }
 
+  private signToken(
+    u: { id: string; tenantId: string; role: string; employeeId: string | null },
+    mustChangePassword: boolean,
+  ) {
+    return this.jwt.signAsync({
+      sub: u.id,
+      tenantId: u.tenantId,
+      role: u.role,
+      employeeId: u.employeeId,
+      ...(mustChangePassword ? { mcp: true } : {}),
+    });
+  }
+
   /** Self-service password change (v019.A) — the account menu at the bottom
    *  of the sidebar, available to every role. Scoped by the caller's own
    *  tenantId + userId from their JWT (CurrentUser), so this can only ever
    *  change the signed-in user's own password, never anyone else's. */
   async changePassword(user: AuthenticatedUser, dto: ChangePasswordDto) {
+    if (dto.newPassword === dto.currentPassword) {
+      throw new BadRequestException('Choose a new password that is different from your current one.');
+    }
+    if (dto.newPassword === LEGACY_SHARED_PASSWORD) {
+      throw new BadRequestException('That password is too easy to guess — please choose another.');
+    }
     await withTenant(user.tenantId, async (tx) => {
       const [row] = await tx.select().from(users).where(eq(users.id, user.userId)).limit(1);
       if (!row) throw new UnauthorizedException('Session no longer valid.');
@@ -151,10 +200,50 @@ export class AuthService {
 
       await tx
         .update(users)
-        .set({ passwordHash: await bcrypt.hash(dto.newPassword, 10) })
+        .set({ passwordHash: await bcrypt.hash(dto.newPassword, 10), mustChangePassword: false })
         .where(eq(users.id, user.userId));
     });
-    return { ok: true };
+    // v027.A — a fresh token without the must-change flag, so a forced
+    // change can carry straight on into the app.
+    const accessToken = await this.signToken(
+      { id: user.userId, tenantId: user.tenantId, role: user.role, employeeId: user.employeeId },
+      false,
+    );
+    return { ok: true, accessToken };
+  }
+
+  /** v027.A — public "Forgot password?" on the sign-in page. Always answers
+   *  the same way whether or not the account exists, so it can't be used to
+   *  test which emails are registered. The link is emailed only to the
+   *  account's own login address. */
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const email = dto.email.trim().toLowerCase();
+    const generic = { ok: true };
+    try {
+      const tenant = await resolveTenantBySlug(dto.tenantSlug);
+      if (!tenant || tenant.status === 'INACTIVE') return generic;
+
+      const account = await withTenant(tenant.id, async (tx) => {
+        const [row] = await tx
+          .select({ id: users.id, email: users.email, employeeId: users.employeeId, firstName: users.firstName })
+          .from(users)
+          .where(and(eq(users.tenantId, tenant.id), sql`lower(${users.email}) = ${email}`))
+          .limit(1);
+        return row ?? null;
+      });
+      if (!account) return generic;
+      if (account.employeeId && (await employeeAccessEnded(tenant.id, account.employeeId))) return generic;
+
+      const token = await issueResetToken(tenant.id, account.id);
+      await this.mail.send({
+        to: account.email,
+        subject: 'Reset your tmPro password',
+        text: `Hi${account.firstName ? ` ${account.firstName}` : ''},\n\nSomeone (hopefully you) asked to reset the password for your tmPro account at ${tenant.name}. Use the link below to choose a new password — it expires in 1 hour and works once:\n\n${resetLink(token)}\n\nIf you didn't ask for this, you can ignore this email — your password stays unchanged.`,
+      });
+    } catch (err) {
+      this.logger.warn(`forgotPassword failed: ${(err as Error).message}`);
+    }
+    return generic;
   }
 
   /** Public completion of an Admin/HR-initiated password reset (v023.A —
@@ -164,19 +253,24 @@ export class AuthService {
    *  reasoning, and the same identify_lookup RLS policy on `users`, as
    *  identify() above. */
   async resetPasswordWithToken(dto: CompletePasswordResetDto) {
+    if (dto.newPassword === LEGACY_SHARED_PASSWORD) {
+      throw new BadRequestException('That password is too easy to guess — please choose another.');
+    }
     const tokenHash = createHash('sha256').update(dto.token).digest('hex');
 
     const [row] = await db.select().from(users).where(eq(users.resetTokenHash, tokenHash)).limit(1);
 
     if (!row || !row.resetTokenExpiresAt || row.resetTokenExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException('This reset link is invalid or has expired — ask an Admin to send you a new one.');
+      throw new BadRequestException(
+        'This reset link is invalid or has expired. Use "Forgot password?" on the sign-in page to get a new one.',
+      );
     }
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 10);
     await withTenant(row.tenantId, (tx) =>
       tx
         .update(users)
-        .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null })
+        .set({ passwordHash, resetTokenHash: null, resetTokenExpiresAt: null, mustChangePassword: false })
         .where(eq(users.id, row.id)),
     );
 

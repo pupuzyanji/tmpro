@@ -90,3 +90,20 @@ body {
 .badge {
   @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
 }
+
+/* v026.A — long-form text on the public Privacy / Terms / Support pages. */
+.legal-prose ul {
+  @apply list-disc space-y-1.5 pl-5;
+}
+.legal-prose ol {
+  @apply list-decimal space-y-1.5 pl-5;
+}
+.legal-prose strong {
+  @apply font-semibold text-ink;
+}
+.legal-prose a {
+  @apply font-medium text-[#8b2fd9] underline decoration-[#8b2fd9]/30 underline-offset-2 hover:decoration-[#8b2fd9];
+}
+.legal-prose h3 {
+  @apply mt-5 font-semibold text-ink;
+}

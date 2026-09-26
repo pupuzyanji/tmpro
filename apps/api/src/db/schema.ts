@@ -154,6 +154,9 @@ export const users = pgTable(
     // compares actual passwords. Both null once unused/consumed/expired.
     resetTokenHash: varchar('reset_token_hash', { length: 64 }),
     resetTokenExpiresAt: timestamp('reset_token_expires_at'),
+    // v027.A — forces a password change at next sign-in (generated
+    // temporary passwords). See AuthService.login().
+    mustChangePassword: boolean('must_change_password').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [

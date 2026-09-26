@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
 import { IconCheckCircle } from '@/components/icons';
+import { PublicFooter } from '@/components/public-chrome';
 import {
   BANDS,
   BAND_KEYS,
@@ -91,6 +92,9 @@ function PricingPageInner() {
         <div className="flex items-center gap-3 text-sm">
           <Link href="/careers" className="hidden text-slate-500 hover:text-ink sm:inline">
             Careers
+          </Link>
+          <Link href="/support" className="hidden text-slate-500 hover:text-ink sm:inline">
+            Support
           </Link>
           <Link href="/login" className="font-medium text-slate-600 hover:text-ink">
             Sign in
@@ -329,6 +333,7 @@ function PricingPageInner() {
           Payments are processed securely by Stripe. Visa and Mastercard credit and debit cards accepted.
         </p>
       </section>
+      <PublicFooter />
     </div>
   );
 }

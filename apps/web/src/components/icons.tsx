@@ -406,3 +406,13 @@ export function IconChevronDown() {
     </Base>
   );
 }
+
+export function IconHelp() {
+  return (
+    <Base>
+      <circle cx="10" cy="10" r="7.5" />
+      <path d="M7.8 7.9a2.3 2.3 0 0 1 4.4.9c0 1.5-2.2 2-2.2 3.2" />
+      <path d="M10 14.6h.01" />
+    </Base>
+  );
+}

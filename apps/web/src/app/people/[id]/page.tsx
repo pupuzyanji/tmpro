@@ -14,7 +14,7 @@ import { PerformanceTab } from './performance-tab';
 import { LeaveTab } from './leave-tab';
 import { DocumentsTab } from './documents-tab';
 import { Field } from './shared';
-import type { EmployeeDetail } from './types';
+import type { EmployeeDetail, PersonAccount } from './types';
 
 const TABS = [
   { key: 'General Info', icon: <IconUser /> },
@@ -137,8 +137,9 @@ function PersonPageInner() {
           account={person.account}
           canEdit={canEdit}
           isSelf={session?.profile?.id === person.id}
+          viewerRole={session?.user.role ?? ''}
           call={call}
-          onSaved={(account) => setPerson((p) => (p ? { ...p, account } : p))}
+          onSaved={(account) => setPerson((p) => (p ? { ...p, account: { ...p.account, ...account } } : p))}
         />
       )}
     </div>
@@ -166,28 +167,31 @@ const EDITABLE_ROLES = ['EMPLOYEE', 'SUPERVISOR', 'HR', 'ADMIN'] as const;
  *  so the editor doesn't render for them either — instead, below the role
  *  section, Admin/HR get a "Generate Login" button (formerly the bulk
  *  Settings → Employees action, now per-person here) that creates their
- *  sign-in from their personal email, one shared default password. */
+ *  sign-in from their personal email with a unique temporary password
+ *  (v027.A) that must be changed at first sign-in. */
 function PermissionTab({
   employeeId,
   account,
   canEdit,
   isSelf,
+  viewerRole,
   call,
   onSaved,
 }: {
   employeeId: string;
-  account: { email: string; role: string } | null;
+  account: PersonAccount | null;
   canEdit: boolean;
   isSelf: boolean;
+  viewerRole: string;
   call: ReturnType<typeof useApi>['call'];
-  onSaved: (account: { email: string; role: string }) => void;
+  onSaved: (account: PersonAccount) => void;
 }) {
   const [role, setRole] = useState(account?.role ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
-  const [generated, setGenerated] = useState<{ email: string; role: string; defaultPassword: string } | null>(null);
+  const [generated, setGenerated] = useState<{ email: string; role: string; tempPassword: string } | null>(null);
 
   // v023.A — Account email editor (login email, distinct from the
   // employee's personal email on General Info → Personal Details).
@@ -250,11 +254,11 @@ function PermissionTab({
     setGenerating(true);
     setError(null);
     try {
-      const created = await call<{ id: string; email: string; role: string; defaultPassword: string }>(
+      const created = await call<{ id: string; email: string; role: string; tempPassword: string }>(
         `/employees/${employeeId}/generate-login`,
         { method: 'POST' },
       );
-      onSaved({ email: created.email, role: created.role });
+      onSaved({ email: created.email, role: created.role, mustChangePassword: true });
       setGenerated(created);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not generate a login.');
@@ -277,8 +281,13 @@ function PermissionTab({
     }
   }
 
-  const canEditRole = canEdit && !!account && !isSelf;
-  const canEditEmail = canEdit && !!account;
+  // v027.A — only an Admin can grant Admin or manage an Admin's login.
+  const viewerIsAdmin = viewerRole === 'ADMIN';
+  const targetIsAdmin = account?.role === 'ADMIN';
+  const mayManage = canEdit && !!account && (viewerIsAdmin || !targetIsAdmin);
+  const canEditRole = mayManage && !isSelf;
+  const canEditEmail = mayManage;
+  const roleOptions = EDITABLE_ROLES.filter((r) => r !== 'ADMIN' || viewerIsAdmin);
 
   return (
     <div className="card space-y-3">
@@ -328,7 +337,7 @@ function PermissionTab({
               setSaved(false);
             }}
           >
-            {EDITABLE_ROLES.map((r) => (
+            {roleOptions.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -339,6 +348,21 @@ function PermissionTab({
         <Field label="Role" value={account?.role} />
       )}
       {!account && <p className="text-xs text-slate-400">This person doesn&apos;t have a login account yet.</p>}
+      {account?.accessEnded && (
+        <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
+          Sign-in is switched off because this person&apos;s status is Alumni. Add a new status on the Job tab to restore
+          access.
+        </p>
+      )}
+      {account && !account.accessEnded && account.mustChangePassword && (
+        <p className="text-xs text-slate-400">Hasn&apos;t signed in and chosen their own password yet.</p>
+      )}
+      {account && targetIsAdmin && canEdit && !viewerIsAdmin && (
+        <p className="text-xs text-slate-400">Only an Admin can change another Admin&apos;s account.</p>
+      )}
+      {!viewerIsAdmin && canEditRole && (
+        <p className="text-xs text-slate-400">Only an Admin can give someone the Admin role.</p>
+      )}
       {account && isSelf && canEdit && <p className="text-xs text-slate-400">You can&apos;t change your own role.</p>}
 
       {!account && canEdit && (
@@ -349,7 +373,7 @@ function PermissionTab({
         </div>
       )}
 
-      {account && canEdit && (
+      {account && mayManage && !account.accessEnded && (
         <div className="flex justify-end pt-1">
           <button className="btn-secondary" disabled={resettingPassword} onClick={resetPassword}>
             {resettingPassword ? 'Sending…' : 'Reset password'}
@@ -362,8 +386,10 @@ function PermissionTab({
       {generated && (
         <p className="rounded-md bg-emerald-50 p-3 text-xs text-emerald-800">
           Login created — <span className="font-medium">{generated.email}</span> ·{' '}
-          <span className="badge bg-emerald-100 text-emerald-700">{generated.role}</span> · default password:{' '}
-          <span className="font-mono">{generated.defaultPassword}</span>. Pass this on to them yourself.
+          <span className="badge bg-emerald-100 text-emerald-700">{generated.role}</span> · temporary password:{' '}
+          <span className="select-all font-mono">{generated.tempPassword}</span>. We&apos;ve emailed it to them; you can
+          also pass it on yourself. They&apos;ll choose their own password the first time they sign in. This password
+          won&apos;t be shown again.
         </p>
       )}
       {resetSentTo && (

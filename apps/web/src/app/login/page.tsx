@@ -131,6 +131,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // v027.A — self-service "Forgot password?"
+  const [resetState, setResetState] = useState<'idle' | 'sending' | 'sent'>('idle');
 
   async function identify(candidateEmail: string) {
     const trimmed = candidateEmail.trim();
@@ -179,6 +181,23 @@ export default function LoginPage() {
     setSelected(null);
     setPassword('');
     setError(null);
+    setResetState('idle');
+  }
+
+  async function forgotPassword() {
+    if (!selected) return;
+    setError(null);
+    setResetState('sending');
+    try {
+      await apiFetch('/auth/forgot-password', null, {
+        method: 'POST',
+        body: JSON.stringify({ email, tenantSlug: selected.tenantSlug }),
+      });
+      setResetState('sent');
+    } catch (err) {
+      setResetState('idle');
+      setError(err instanceof ApiError ? err.message : 'Could not send a reset link. Please try again.');
+    }
   }
 
   async function onSubmitPassword(e: React.FormEvent) {
@@ -343,6 +362,23 @@ export default function LoginPage() {
                 />
               </div>
 
+              <div className="-mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={forgotPassword}
+                  disabled={resetState !== 'idle'}
+                  className="text-xs font-medium text-brand-blue underline disabled:no-underline disabled:opacity-60"
+                >
+                  {resetState === 'sending' ? 'Sending…' : 'Forgot password?'}
+                </button>
+              </div>
+              {resetState === 'sent' && (
+                <p className="rounded-md bg-emerald-50 p-3 text-xs text-emerald-800">
+                  We&apos;ve emailed a reset link to {email} if it has an account here. It expires in 1 hour — check your
+                  spam folder if it doesn&apos;t arrive.
+                </p>
+              )}
+
               {error && <p className="text-sm text-red-600">{error}</p>}
 
               <button type="submit" className="btn-primary w-full" disabled={submitting}>
@@ -367,6 +403,18 @@ export default function LoginPage() {
               Go to the careers page
             </a>
             .
+          </p>
+
+          <p className="mt-6 flex flex-wrap justify-center gap-x-4 gap-y-1 text-center text-xs text-slate-400">
+            <a className="hover:text-ink" href="/support">
+              Help &amp; support
+            </a>
+            <a className="hover:text-ink" href="/privacy-policy">
+              Privacy Policy
+            </a>
+            <a className="hover:text-ink" href="/terms-of-service">
+              Terms of Service
+            </a>
           </p>
         </div>
 

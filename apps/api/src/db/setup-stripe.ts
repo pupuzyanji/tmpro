@@ -20,7 +20,8 @@ import { BANDS, BAND_KEYS, BILLING_CURRENCY, PLANS, PLAN_KEYS, PRICES_USD, looku
 
 async function main() {
   const stripe = getStripe();
-  const mode = process.env.STRIPE_SECRET_KEY?.startsWith('sk_live') ? 'LIVE' : 'TEST';
+  // sk_live_… (full access) and rk_live_… (restricted) are both live-mode keys.
+  const mode = /^(sk|rk)_live_/.test(process.env.STRIPE_SECRET_KEY ?? '') ? 'LIVE' : 'TEST';
   console.log(`Setting up tmPro billing in Stripe (${mode} mode)…\n`);
 
   const existingProducts = (await stripe.products.list({ limit: 100, active: true })).data;

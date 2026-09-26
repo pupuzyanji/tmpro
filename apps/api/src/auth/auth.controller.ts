@@ -4,6 +4,7 @@ import { LoginDto } from './dto/login.dto';
 import { IdentifyDto } from './dto/identify.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CompletePasswordResetDto } from './dto/reset-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { RateLimitGuard } from './rate-limit.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser, type AuthenticatedUser } from '../common/decorators/current-user.decorator';
@@ -36,6 +37,14 @@ export class AuthController {
   // (see EmployeesService.resetPassword()). Same rate-limit shape as
   // identify(): keyed by IP (the body has no email, just a token), to slow
   // down guessing at valid tokens.
+  // v027.A — self-service "Forgot password?". 5 requests per 15 minutes
+  // per (IP, email), so it can't be used to flood someone's inbox.
+  @Post('forgot-password')
+  @UseGuards(RateLimitGuard(5, 15 * 60_000))
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(dto);
+  }
+
   @Post('reset-password')
   @UseGuards(RateLimitGuard(10, 15 * 60_000))
   resetPassword(@Body() dto: CompletePasswordResetDto) {

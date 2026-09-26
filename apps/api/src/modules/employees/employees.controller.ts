@@ -69,8 +69,8 @@ export class EmployeesController {
   }
 
   /** People profile → Permission tab's role editor (v019.A). Admin or HR;
-   *  the service itself blocks changing your own role, so this can't be
-   *  used to self-escalate. */
+   *  the service blocks changing your own role and (v027.A) stops HR from
+   *  granting Admin or touching an Admin's account. */
   @Patch(':id/role')
   @Roles('ADMIN', 'HR')
   updateRole(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateEmployeeRoleDto) {
@@ -88,7 +88,7 @@ export class EmployeesController {
 
   /** Bulk-creates login accounts for every employee who doesn't have one yet
    *  (personal email as the login, Supervisor if they have direct reports,
-   *  Employee otherwise, one shared default password) — Settings → Employees. */
+   *  Employee otherwise, each with its own temporary password) — Settings → Employees. */
   @Post('generate-logins')
   @Roles('ADMIN', 'HR')
   generateLogins(@CurrentUser() user: AuthenticatedUser) {
@@ -110,14 +110,14 @@ export class EmployeesController {
   @Post(':id/reset-password')
   @Roles('ADMIN', 'HR')
   resetPassword(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return this.employees.resetPassword(user.tenantId, id);
+    return this.employees.resetPassword(user.tenantId, id, user);
   }
 
   /** People profile → Permission tab's "Account email" editor (v023.A). */
   @Patch(':id/account-email')
   @Roles('ADMIN', 'HR')
   updateAccountEmail(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateAccountEmailDto) {
-    return this.employees.updateAccountEmail(user.tenantId, id, dto.email);
+    return this.employees.updateAccountEmail(user.tenantId, id, dto.email, user);
   }
 
   /** Portrait photo — Settings → Employees setup, or the People profile edit.

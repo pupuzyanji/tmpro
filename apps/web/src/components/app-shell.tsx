@@ -20,13 +20,23 @@ import {
   IconDocument,
   IconChartBar,
   IconLogout,
+  IconHelp,
   IconSettings,
   IconChevronRight,
   IconPalette,
   IconClock,
 } from '@/components/icons';
 
-const PUBLIC_ROUTES = ['/login', '/register-organisation', '/register-organisation/success', '/reset-password', '/pricing'];
+const PUBLIC_ROUTES = [
+  '/login',
+  '/register-organisation',
+  '/register-organisation/success',
+  '/reset-password',
+  '/pricing',
+  '/support',
+  '/privacy-policy',
+  '/terms-of-service',
+];
 // Prefix-matched, not exact — /careers is the cross-tenant job board,
 // /careers/[tenantSlug] and its job-detail page are one tenant's board.
 // /platform-admin isn't public (it has its own login+auth — see
@@ -48,7 +58,7 @@ interface Branding {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { session, logout } = useAuth();
+  const { session, logout, passwordChanged } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [branding, setBranding] = useState<Branding | null>(null);
@@ -113,6 +123,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // page itself. Checked even for a signed-in visitor (e.g. an admin
     // previewing their own tenant's careers page), not only when signed out.
     return <>{children}</>;
+  }
+
+  // v027.A — first sign-in with a temporary password: nothing else is
+  // usable until they choose their own (the API enforces this too).
+  if (session.mustChangePassword) {
+    return (
+      <div className="min-h-screen bg-[#f7f6fc]">
+        <ChangePasswordModal
+          forced
+          accessToken={session.accessToken}
+          onChanged={passwordChanged}
+          onClose={() => router.push('/dashboard')}
+          onSignOut={() => {
+            logout();
+            router.push('/login');
+          }}
+        />
+      </div>
+    );
   }
 
   const isAdminOrSupervisor =
@@ -208,6 +237,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="mt-2 border-t border-white/10 pt-2">
+          <a
+            href="/support"
+            target="_blank"
+            rel="noreferrer"
+            title={collapsed ? 'Help & support' : undefined}
+            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white ${
+              collapsed ? 'justify-center' : ''
+            }`}
+          >
+            <IconHelp />
+            {!collapsed && 'Help & support'}
+          </a>
           <button
             type="button"
             onClick={toggleTheme}
@@ -288,7 +329,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
     </div>
     {showPasswordModal && (
-      <ChangePasswordModal accessToken={session.accessToken} onClose={() => setShowPasswordModal(false)} />
+      <ChangePasswordModal
+        accessToken={session.accessToken}
+        onChanged={passwordChanged}
+        onClose={() => setShowPasswordModal(false)}
+      />
     )}
     </>
   );

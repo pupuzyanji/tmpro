@@ -7,7 +7,22 @@ import { apiFetch, ApiError } from '@/lib/api';
  *  for every role (Admin, Supervisor, Employee); the backend scopes the
  *  change to whoever the caller's own JWT says they are, so there's
  *  nothing role-specific here. */
-export function ChangePasswordModal({ accessToken, onClose }: { accessToken: string; onClose: () => void }) {
+export function ChangePasswordModal({
+  accessToken,
+  onClose,
+  onChanged,
+  forced = false,
+  onSignOut,
+}: {
+  accessToken: string;
+  onClose: () => void;
+  /** Receives the fresh token the API issues after a change (v027.A). */
+  onChanged?: (accessToken: string) => void;
+  /** v027.A — first sign-in with a temporary password: no Cancel, and the
+   *  app stays locked until the password is changed. */
+  forced?: boolean;
+  onSignOut?: () => void;
+}) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -30,10 +45,15 @@ export function ChangePasswordModal({ accessToken, onClose }: { accessToken: str
 
     setSaving(true);
     try {
-      await apiFetch('/auth/change-password', accessToken, {
+      const res = await apiFetch<{ ok: true; accessToken?: string }>('/auth/change-password', accessToken, {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword }),
       });
+      if (res.accessToken) onChanged?.(res.accessToken);
+      if (forced) {
+        onClose();
+        return;
+      }
       setSaved(true);
       setCurrentPassword('');
       setNewPassword('');
@@ -51,8 +71,12 @@ export function ChangePasswordModal({ accessToken, onClose }: { accessToken: str
         <div className="h-1.5 w-full bg-brand-gradient" />
         <form onSubmit={onSubmit} className="space-y-4 p-6">
           <div>
-            <h2 className="text-lg font-semibold text-ink">Change password</h2>
-            <p className="mt-0.5 text-sm text-slate-500">Set a new password for your account.</p>
+            <h2 className="text-lg font-semibold text-ink">{forced ? 'Choose your own password' : 'Change password'}</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              {forced
+                ? "You signed in with a temporary password. Choose a new one (at least 8 characters) to continue — you'll use it from now on."
+                : 'Set a new password for your account.'}
+            </p>
           </div>
 
           {saved ? (
@@ -68,7 +92,7 @@ export function ChangePasswordModal({ accessToken, onClose }: { accessToken: str
             <>
               <div>
                 <label className="label" htmlFor="currentPassword">
-                  Current password
+                  {forced ? 'Temporary password' : 'Current password'}
                 </label>
                 <input
                   id="currentPassword"
@@ -112,9 +136,15 @@ export function ChangePasswordModal({ accessToken, onClose }: { accessToken: str
               {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
               <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
-                <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
-                  Cancel
-                </button>
+                {forced ? (
+                  <button type="button" className="btn-secondary" onClick={onSignOut} disabled={saving}>
+                    Sign out
+                  </button>
+                ) : (
+                  <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
+                    Cancel
+                  </button>
+                )}
                 <button type="submit" className="btn-primary" disabled={saving}>
                   {saving ? 'Saving…' : 'Save'}
                 </button>

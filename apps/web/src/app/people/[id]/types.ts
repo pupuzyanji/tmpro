@@ -47,7 +47,7 @@ export interface EmployeeDetail {
   zipCode: string | null;
 
   manager: { id: string; firstName: string; lastName: string } | null;
-  account: { email: string; role: string } | null;
+  account: PersonAccount | null;
 }
 
 export interface EmployeeOption {
@@ -105,4 +105,14 @@ export function toDateInput(iso: string | null | undefined) {
 
 export function personName(p: { firstName: string; lastName: string } | null | undefined) {
   return p ? `${p.firstName} ${p.lastName}` : '—';
+}
+
+/** v027.A — linked login account as returned by GET /employees/:id. */
+export interface PersonAccount {
+  email: string;
+  role: string;
+  /** Still on the temporary password — hasn't signed in and changed it yet. */
+  mustChangePassword?: boolean;
+  /** Status is Alumni (effective) — sign-in is switched off. */
+  accessEnded?: boolean;
 }

@@ -27,7 +27,10 @@ export class TenantsAdminService {
    *  transaction-ish pair of writes. `users` is RLS-scoped, so the login
    *  insert has to go through withTenant() once the tenant row (and its id)
    *  exist. */
-  async create(dto: CreateTenantDto) {
+  /** v027.A — `ownPassword: true` when the admin chose the password themselves
+   *  (self-serve sign-up); otherwise the platform owner set it, so the admin
+   *  must change it at first sign-in. */
+  async create(dto: CreateTenantDto, opts: { ownPassword?: boolean } = {}) {
     const email = dto.adminEmail.trim().toLowerCase();
     const slug = await this.uniqueSlug(dto.organisationName);
     const enabledModules = this.withCoreModules(dto.enabledModules ?? []);
@@ -49,6 +52,7 @@ export class TenantsAdminService {
           email,
           passwordHash: await bcrypt.hash(dto.password, 10),
           role: 'ADMIN',
+          mustChangePassword: !opts.ownPassword,
           firstName: dto.adminFirstName.trim(),
           lastName: dto.adminLastName.trim(),
         });
@@ -94,7 +98,10 @@ export class TenantsAdminService {
         if (dto.adminFirstName !== undefined) adminPatch.firstName = dto.adminFirstName.trim();
         if (dto.adminLastName !== undefined) adminPatch.lastName = dto.adminLastName.trim();
         if (dto.adminEmail !== undefined) adminPatch.email = dto.adminEmail.trim().toLowerCase();
-        if (dto.password !== undefined) adminPatch.passwordHash = await bcrypt.hash(dto.password, 10);
+        if (dto.password !== undefined) {
+          adminPatch.passwordHash = await bcrypt.hash(dto.password, 10);
+          adminPatch.mustChangePassword = true; // v027.A — set by the platform owner
+        }
         try {
           await tx.update(users).set(adminPatch).where(eq(users.id, admin.id));
         } catch (err) {

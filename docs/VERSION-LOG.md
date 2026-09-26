@@ -1733,3 +1733,105 @@ the upgrade message; non-Admin → 403 on /billing/summary. UI screenshots of pr
 Admin. **Not verified here:** a real Stripe account (test or live) — this sandbox can't
 reach api.stripe.com; do the test-mode walkthrough in `docs/BILLING-SETUP.md` before
 going live.
+
+## v026.A — Support centre, Privacy Policy, Terms of Service (2026-09-26)
+
+**New public pages** (no sign-in, no sidebar; added to `PUBLIC_ROUTES` in app-shell):
+- `/support` — searchable knowledge base: 39 how-to articles across 11 categories
+  (getting started, signing in, people, leave, timesheets, payroll, recruitment,
+  performance & training, documents & announcements, billing, privacy & security).
+  Search matches every word across title, steps, body and tags, ranking title/tag hits
+  first. Category chips, expandable articles, deep links (`/support#run-payroll` opens
+  and scrolls to the article), "Still stuck?" mailto per article, contact card for
+  us@bitware.app. Articles live in `app/support/articles.ts` and were written from the
+  current code — update the matching article when a workflow changes.
+- `/privacy-policy` — information collected, use, parties it is disclosed to (Stripe,
+  AWS hosting + SES email, advisers, authorities), method of disclosure, security
+  practices, retention, rights and complaints (NZ Privacy Act 2020).
+- `/terms-of-service` — trial, USD monthly billing, upgrades/downgrades, cancellation,
+  failed payments, acceptable use, data ownership, payroll/tax responsibility, liability
+  cap, CGA business exclusion, NZ law.
+- Shared `components/public-chrome.tsx` (header, footer, legal document layout) and
+  `lib/legal.ts` — company name, emails, effective date, retention period and support
+  response time in one place.
+
+**Links:** pricing page (header Support link + footer), login page footer, sign-up terms
+checkbox now links to Terms and Privacy (open in new tab), and a "Help & support" item in
+the in-app sidebar (opens /support in a new tab).
+
+**Web only — no API or database changes.** Verified: `next build` clean; screenshots of
+all three pages at desktop and 390px mobile (no horizontal scroll); search, empty-result
+state and deep links checked in a browser.
+
+## v027.A — Account security fixes + full data export (2026-09-26)
+
+Legal entity on the public pages is now **Riverbird Technology Partners Limited, trading
+as Bitware** (`apps/web/src/lib/legal.ts`: `company`, `tradingName`).
+
+**1. No more shared default password.** "Generate Login" (single and bulk) now gives each
+account its own random temporary password (e.g. `Kp7m-Xq3r-Tz9w`), emailed to the person
+and shown once to the Admin/HR user. New column `users.must_change_password` (migration
+`0033_account_security.sql`).
+
+**2. Forced password change at first sign-in.** A login with `must_change_password`, or
+with the retired shared default `Passw0rd!`, gets a token carrying `mcp: true`. The API
+refuses every route except `POST /auth/change-password` for that token (JwtStrategy).
+The web app shows only a "Choose your own password" screen until it's done, and
+change-password returns a fresh normal token. Tenant Admins whose password was set by
+the platform owner (Platform Admin → Add/Edit tenant) must change it too; self-serve
+sign-ups chose their own, so they don't. `Passw0rd!` can no longer be chosen as a new
+password.
+
+**3. Leavers lose access.** When an employee's latest status that has taken effect is
+ALUMNI, sign-in is refused ("Your access to this organisation has ended…"). Sessions
+already open are cut off within a minute: JwtStrategy re-checks, with a 60-second
+cache that is cleared whenever status history changes. A future-dated ALUMNI entry (a
+notice period) keeps access until its date. Adding an ACTIVE entry restores access. The
+Permission tab says when sign-in is off, and when someone hasn't replaced their
+temporary password yet.
+
+**4. HR can't escalate to Admin.** Only an Admin can grant the ADMIN role, or change an
+Admin's role, login email or send them a reset link. Without this, HR could take over an
+Admin account by changing its email and resetting it. Enforced in EmployeesService
+(`assertMayManageAccount`). The Permission tab hides ADMIN from HR and explains why.
+
+**5. Self-service "Forgot password?"** On the sign-in password step, calls
+`POST /auth/forgot-password {email, tenantSlug}` (5 per 15 min per IP+email). It always
+returns the same answer, so it can't be used to discover which emails have accounts. It
+emails a 1-hour single-use link to the login email, reusing the v023 reset flow.
+Completing a reset also clears `must_change_password`. Leavers get no link.
+
+**6. Full data export.** Settings → Organization → "Export all data" (Admin only,
+`GET /api/data-export`, 5 per 15 min). The ZIP contains:
+- one CSV per table (every table with a `tenant_id`, discovered automatically);
+- `organisation.json` and a README;
+- every uploaded file (data-URI columns) extracted under `files/<table>/`, with the CSV
+  cell holding the file's path.
+
+Password hashes and reset tokens are never exported. New dependency: `fflate`.
+
+**Platform Admin password.** `npm run platform-admin:password -- <email>` (apps/api)
+sets a new Platform Admin password from the server's shell (hidden prompt, 12+
+characters). The seeded account used `Passw0rd!`.
+
+**Help centre.** Articles updated for all of the above, plus a new "Export all your
+organisation's data" article (40 articles in total). The privacy policy and terms now
+mention forced temporary-password changes, access removal and self-service export.
+
+**Verified:** `tsc` clean for the API, `next build` clean for the web app. 29 API
+scenario checks passed:
+- shared password forces a change, and the flagged token is blocked;
+- the new token works, and later sign-ins aren't forced;
+- HR can't grant ADMIN, demote an Admin, or change an Admin's email or password;
+- temporary passwords are unique and force a change;
+- future-dated ALUMNI still signs in, but effective ALUMNI can't sign in and an open
+  session gets 401;
+- ACTIVE restores access;
+- forgot-password answers the same for unknown emails, the reset link works once, and
+  reuse is refused;
+- export: HR gets 403; Admin gets a ZIP with 37 tables and 16 files, no password data,
+  and only its own tenant's rows. The export was identical under a non-superuser
+  (row-level-security) database role.
+
+Browser checks: Forgot password, the forced-change screen (it lands on the dashboard
+afterwards), and the export download.

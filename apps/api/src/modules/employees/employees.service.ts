@@ -13,6 +13,7 @@ import { importCsvRows } from '../../common/csv/csv-import.util';
 import { MailService } from '../../common/mail/mail.service';
 import type { CreateEmployeeDto, EmploymentType, UpdateEmployeeDto } from './dto/create-employee.dto';
 import type { EditableRole } from './dto/update-employee-role.dto';
+import { WEB_APP_URL, employeeAccessEnded, generateTempPassword, issueResetToken, resetLink } from '../../auth/account-security';
 
 const VALID_EMPLOYMENT_TYPES: EmploymentType[] = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN'];
 
@@ -46,22 +47,18 @@ const LIST_COLUMNS = {
   timesheetsEnabled: employees.timesheetsEnabled,
 } as const;
 
-// Same default demo password used by src/db/seed.ts — kept as one shared,
-// known default here too rather than generating a random one per employee.
-// Emailed to each new account (see emailNewLogin below) and also still
-// shown on-screen to the Admin/HR who triggered the generation, as a
-// fallback for when SMTP isn't configured yet.
-export const GENERATED_LOGIN_DEFAULT_PASSWORD = 'Passw0rd!';
+// v027.A — every generated login now gets its own random temporary
+// password (see generateTempPassword) and must change it at first sign-in.
+// Reset-link and web-URL constants moved to auth/account-security.ts.
 
-// v023.A — Admin/HR "Reset password". How long an emailed reset link stays
-// valid before it has to be re-sent.
-const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-// Base URL of the web app, for building links inside emails (the reset
-// link below, and anything similar later). No NEXT_PUBLIC_ equivalent is
-// needed here — this is API-side only, used solely to compose a link text
-// that's mailed out, never read by the frontend.
-const WEB_APP_URL = process.env.WEB_APP_URL || 'http://localhost:3000';
+/** v027.A — HR can manage everyone's login except an Admin's: changing an
+ *  Admin's role, login email or sending them a reset link would let HR take
+ *  over an Admin account. */
+function assertMayManageAccount(actingUser: AuthenticatedUser, targetRole: string) {
+  if (targetRole === 'ADMIN' && actingUser.role !== 'ADMIN') {
+    throw new ForbiddenException("Only an Admin can change another Admin's account.");
+  }
+}
 
 @Injectable()
 export class EmployeesService {
@@ -171,13 +168,17 @@ export class EmployeesService {
 
     const [account] = await withTenant(tenantId, (tx) =>
       tx
-        .select({ email: users.email, role: users.role })
+        .select({ email: users.email, role: users.role, mustChangePassword: users.mustChangePassword })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.employeeId, id)))
         .limit(1),
     );
 
-    return { ...row, account: account ?? null };
+    // v027.A — lets the Permission tab say when sign-in has been switched
+    // off because the person has left.
+    const accessEnded = account ? await employeeAccessEnded(tenantId, id) : false;
+
+    return { ...row, account: account ? { ...account, accessEnded } : null };
   }
 
   /** People profile → Permission tab's role editor (v019.A), Admin-only.
@@ -191,6 +192,20 @@ export class EmployeesService {
     if (actingUser.employeeId === employeeId) {
       throw new BadRequestException('You cannot change your own role.');
     }
+    // v027.A — only an Admin can grant Admin, or change an Admin's role.
+    if (role === 'ADMIN' && actingUser.role !== 'ADMIN') {
+      throw new ForbiddenException('Only an Admin can give someone Admin access.');
+    }
+    const [current] = await withTenant(tenantId, (tx) =>
+      tx
+        .select({ role: users.role })
+        .from(users)
+        .where(and(eq(users.tenantId, tenantId), eq(users.employeeId, employeeId)))
+        .limit(1),
+    );
+    if (!current) throw new NotFoundException('This person does not have a login account yet.');
+    assertMayManageAccount(actingUser, current.role);
+
     const [row] = await withTenant(tenantId, (tx) =>
       tx
         .update(users)
@@ -442,10 +457,8 @@ export class EmployeesService {
       const takenEmails = new Set(existingUsers.map((u) => u.email.toLowerCase()));
       const managerIds = new Set(allEmployees.filter((e) => e.managerId).map((e) => e.managerId as string));
 
-      const created: Array<{ employeeId: string; name: string; email: string; role: 'SUPERVISOR' | 'EMPLOYEE' }> = [];
+      const created: Array<{ employeeId: string; name: string; email: string; role: 'SUPERVISOR' | 'EMPLOYEE'; tempPassword: string }> = [];
       const skipped: Array<{ employeeId: string; name: string; reason: string }> = [];
-
-      const passwordHash = await bcrypt.hash(GENERATED_LOGIN_DEFAULT_PASSWORD, 10);
 
       for (const emp of allEmployees) {
         const name = `${emp.firstName} ${emp.lastName}`;
@@ -464,28 +477,31 @@ export class EmployeesService {
         }
 
         const role = managerIds.has(emp.id) ? ('SUPERVISOR' as const) : ('EMPLOYEE' as const);
-        await tx.insert(users).values({ tenantId, email, passwordHash, role, employeeId: emp.id });
+        const tempPassword = generateTempPassword();
+        const passwordHash = await bcrypt.hash(tempPassword, 10);
+        await tx.insert(users).values({ tenantId, email, passwordHash, role, employeeId: emp.id, mustChangePassword: true });
         takenEmails.add(email); // guards against two employees sharing one personal email
-        created.push({ employeeId: emp.id, name, email, role });
+        created.push({ employeeId: emp.id, name, email, role, tempPassword });
       }
 
-      return { created, skipped, defaultPassword: GENERATED_LOGIN_DEFAULT_PASSWORD };
+      return { created, skipped };
     });
 
     // Outside the transaction, best-effort: one email per new account. A
     // provider outage never rolls back the accounts already created.
-    await Promise.all(result.created.map((c) => this.emailNewLogin(c.email, c.name, c.role)));
+    await Promise.all(result.created.map((c) => this.emailNewLogin(c.email, c.name, c.role, c.tempPassword)));
 
     return result;
   }
 
   /** Onboarding email for a freshly generated login — same message whether
    *  it came from the bulk pass above or the single-employee path below. */
-  private async emailNewLogin(email: string, name: string, role: 'SUPERVISOR' | 'EMPLOYEE') {
+  private async emailNewLogin(email: string, name: string, role: 'SUPERVISOR' | 'EMPLOYEE', tempPassword: string) {
+    const signIn = `${WEB_APP_URL}/login`;
     await this.mail.send({
       to: email,
       subject: 'Your tmPro account is ready',
-      text: `Hi ${name},\n\nAn account has been created for you in tmPro (role: ${role}).\n\nSign in with:\n  Email: ${email}\n  Temporary password: ${GENERATED_LOGIN_DEFAULT_PASSWORD}\n\nPlease sign in and change your password as soon as you can.`,
+      text: `Hi ${name},\n\nAn account has been created for you in tmPro (role: ${role}).\n\nSign in at ${signIn} with:\n  Email: ${email}\n  Temporary password: ${tempPassword}\n\nYou'll be asked to choose your own password the first time you sign in.`,
     });
   }
 
@@ -496,7 +512,7 @@ export class EmployeesService {
    *  "Generate Login" button on the People profile, for onboarding a person
    *  one at a time instead of running the bulk pass for the whole tenant. */
   async generateLogin(tenantId: string, employeeId: string) {
-    const { row, name } = await withTenant(tenantId, async (tx) => {
+    const { row, name, tempPassword } = await withTenant(tenantId, async (tx) => {
       const [emp] = await tx
         .select()
         .from(employees)
@@ -526,18 +542,19 @@ export class EmployeesService {
         .limit(1);
       const role = directReport ? ('SUPERVISOR' as const) : ('EMPLOYEE' as const);
 
-      const passwordHash = await bcrypt.hash(GENERATED_LOGIN_DEFAULT_PASSWORD, 10);
+      const tempPassword = generateTempPassword();
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
       const [row] = await tx
         .insert(users)
-        .values({ tenantId, email, passwordHash, role, employeeId })
+        .values({ tenantId, email, passwordHash, role, employeeId, mustChangePassword: true })
         .returning({ id: users.id, email: users.email, role: users.role });
 
-      return { row, name: `${emp.firstName} ${emp.lastName}` };
+      return { row, name: `${emp.firstName} ${emp.lastName}`, tempPassword };
     });
 
-    await this.emailNewLogin(row.email, name, row.role as 'SUPERVISOR' | 'EMPLOYEE');
+    await this.emailNewLogin(row.email, name, row.role as 'SUPERVISOR' | 'EMPLOYEE', tempPassword);
 
-    return { ...row, defaultPassword: GENERATED_LOGIN_DEFAULT_PASSWORD };
+    return { ...row, tempPassword };
   }
 
   /** Admin/HR "Reset password" (v023.A) — People profile → Permission tab,
@@ -550,14 +567,15 @@ export class EmployeesService {
    *  employee's personal email, since the login email is what they
    *  actually sign in with, and the two can differ (see
    *  UpdateAccountEmailDto). */
-  async resetPassword(tenantId: string, employeeId: string) {
+  async resetPassword(tenantId: string, employeeId: string, actingUser: AuthenticatedUser) {
     const result = await withTenant(tenantId, async (tx) => {
       const [account] = await tx
-        .select({ id: users.id, email: users.email })
+        .select({ id: users.id, email: users.email, role: users.role })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.employeeId, employeeId)))
         .limit(1);
       if (!account) throw new NotFoundException('This person does not have a login account yet.');
+      assertMayManageAccount(actingUser, account.role);
 
       const [emp] = await tx
         .select({ firstName: employees.firstName, lastName: employees.lastName })
@@ -565,23 +583,14 @@ export class EmployeesService {
         .where(and(eq(employees.tenantId, tenantId), eq(employees.id, employeeId)))
         .limit(1);
 
-      const token = randomBytes(32).toString('hex');
-      const tokenHash = createHash('sha256').update(token).digest('hex');
-      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-
-      await tx
-        .update(users)
-        .set({ resetTokenHash: tokenHash, resetTokenExpiresAt: expiresAt })
-        .where(eq(users.id, account.id));
-
-      return { email: account.email, name: emp ? `${emp.firstName} ${emp.lastName}` : account.email, token };
+      return { id: account.id, email: account.email, name: emp ? `${emp.firstName} ${emp.lastName}` : account.email };
     });
 
-    const resetUrl = `${WEB_APP_URL}/reset-password?token=${result.token}`;
+    const token = await issueResetToken(tenantId, result.id);
     await this.mail.send({
       to: result.email,
       subject: 'Reset your tmPro password',
-      text: `Hi ${result.name},\n\nAn Admin or HR user requested a password reset for your tmPro account. Use the link below to set a new password — it expires in 1 hour and works once:\n\n${resetUrl}\n\nIf you weren't expecting this, you can ignore this email — your password stays unchanged.`,
+      text: `Hi ${result.name},\n\nAn Admin or HR user requested a password reset for your tmPro account. Use the link below to set a new password — it expires in 1 hour and works once:\n\n${resetLink(token)}\n\nIf you weren't expecting this, you can ignore this email — your password stays unchanged.`,
     });
 
     return { email: result.email };
@@ -592,16 +601,17 @@ export class EmployeesService {
    *  only, same as everything else on this tab — but unlike the role
    *  editor above, editing your own login email is allowed here; there's
    *  no "zero Admins" risk in it the way there is with roles. */
-  async updateAccountEmail(tenantId: string, employeeId: string, newEmail: string) {
+  async updateAccountEmail(tenantId: string, employeeId: string, newEmail: string, actingUser: AuthenticatedUser) {
     const email = newEmail.trim().toLowerCase();
 
     const result = await withTenant(tenantId, async (tx) => {
       const [account] = await tx
-        .select({ id: users.id, email: users.email })
+        .select({ id: users.id, email: users.email, role: users.role })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.employeeId, employeeId)))
         .limit(1);
       if (!account) throw new NotFoundException('This person does not have a login account yet.');
+      assertMayManageAccount(actingUser, account.role);
 
       if (email !== account.email.toLowerCase()) {
         const [taken] = await tx

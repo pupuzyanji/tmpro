@@ -86,3 +86,24 @@ export async function apiUploadMultipart<T>(
   }
   return body as T;
 }
+
+/** v027.A — authenticated file download (e.g. the data export ZIP). Saves
+ *  the file via a temporary link using the server's suggested filename. */
+export async function apiDownload(path: string, token: string | null, fallbackName: string): Promise<void> {
+  const res = await fetch(`${API_URL}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const isJson = res.headers.get('content-type')?.includes('application/json');
+    const body = isJson ? await res.json() : undefined;
+    throw new ApiError(body?.message ?? res.statusText, res.status);
+  }
+  const disposition = res.headers.get('content-disposition') ?? '';
+  const name = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

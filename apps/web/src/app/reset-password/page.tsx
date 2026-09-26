@@ -66,8 +66,8 @@ function ResetPasswordPageInner() {
           <div className="space-y-3 text-center">
             <h1 className="text-lg font-semibold text-ink">Reset link missing</h1>
             <p className="text-sm text-slate-500">
-              This page needs the link from your reset-password email. Ask an Admin to send you a new one if you no
-              longer have it.
+              This page needs the link from your reset-password email. If you no longer have it, use &ldquo;Forgot
+              password?&rdquo; on the sign-in page to get a new one.
             </p>
             <Link href="/login" className="btn-primary mt-2 inline-flex">
               Back to sign in
