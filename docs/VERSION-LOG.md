@@ -1835,3 +1835,27 @@ scenario checks passed:
 
 Browser checks: Forgot password, the forced-change screen (it lands on the dashboard
 afterwards), and the export download.
+
+## v027.B — Next.js 16 security upgrade (2026-09-27)
+
+`npm audit` on the web app reported 1 critical and 4 high vulnerabilities in Next.js
+14.2.x and its bundled postcss. They include denial-of-service, cache-poisoning and SSRF
+advisories, and RCE in the image optimiser (AVIF) and on Windows hosts. 14.2.35 is the
+last 14.x release, so the newer fixes only exist in 15.5.x/16.x. 15.5.26 still flagged
+postcss; **16.3.6 audits clean (0 vulnerabilities)**.
+
+- `next` 14.2.15 → **16.3.6** (pinned). `react` / `react-dom` 18 → **19**, and `@types/react*`
+  19.
+- `eslint-config-next` removed: it was never configured, and it pulled in a vulnerable
+  `glob`. The `next lint` command no longer exists in Next 16, so `npm run lint` now runs
+  `tsc --noEmit`.
+- Next rewrote `tsconfig.json` on first build (`jsx: react-jsx`, plus the
+  `.next/dev/types` include) and updated `next-env.d.ts`. Both are committed as generated.
+- No app code changes were needed. Every dynamic route (`/people/[id]`, `/careers/...`,
+  `/platform-admin/tenants/[id]`) is a client component using `useParams`, so Next 15's
+  async `params` change doesn't affect it.
+
+**Verified:** `tsc` clean, `next build` clean (37 routes). Browser run as Admin through
+all 22 app pages plus the 6 public pages: everything renders, and there are no page
+errors. The only console error was the existing 404 from `/api/employees/me` for an
+Admin with no employee record.
