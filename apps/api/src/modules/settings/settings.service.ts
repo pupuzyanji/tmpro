@@ -8,14 +8,12 @@ import {
   departments,
   designations,
   employees,
-  leaveTypes,
   organizationSettings,
   sections,
 } from '../../db/schema';
 import { importCsvRows } from '../../common/csv/csv-import.util';
 import { MailService } from '../../common/mail/mail.service';
 import type {
-  BulkUpdateLeaveTypesDto,
   CreateAnnouncementDto,
   CreateBranchDto,
   CreateDepartmentDto,
@@ -28,42 +26,6 @@ import type {
   UpdateOrganizationDto,
   UpdateSectionDto,
 } from './dto/settings.dto';
-
-// The fixed leave-type catalog every country regime is provisioned with the
-// first time an Admin opens it in Settings → Leave — names lifted from the
-// attached Zambian statutory-baseline list, deliberately excluding "Public
-// Holidays" (that's a calendar concept, not a balance-tracked leave type).
-// `isPaid: false` only for Unpaid Leave — see leaveTypes.isPaid.
-const LEAVE_TYPE_CATALOG: Array<{ name: string; isPaid: boolean }> = [
-  { name: 'Annual Leave', isPaid: true },
-  { name: 'Sick Leave – Long-term Contract', isPaid: true },
-  { name: 'Sick Leave – Short-term Contract', isPaid: true },
-  { name: 'Maternity Leave', isPaid: true },
-  { name: 'Paternity Leave', isPaid: true },
-  { name: 'Compassionate/Special Leave', isPaid: true },
-  { name: 'Study Leave', isPaid: true },
-  { name: 'Unpaid Leave', isPaid: false },
-  { name: 'Other Leave', isPaid: true },
-];
-
-// Reasonable starting defaults for the Zambia regime only, taken from the
-// statutory-baseline table the catalog names above came from. Every other
-// regime (NZ excepted — payroll-only, not part of this catalog — MW, ZA,
-// OTHER) is provisioned at 0 days / Annually / no carry-over, i.e. blank and
-// ready for an Admin to fill in. These are a starting point, not legal
-// advice — confirm against current Zambian labour law before relying on
-// them, and adjust freely from Settings → Leave (Update → edit → Save).
-const ZM_LEAVE_DEFAULTS: Record<string, { days: number; period: 'DAILY' | 'MONTHLY' | 'ANNUALLY'; carryOver: boolean }> = {
-  'Annual Leave': { days: 2, period: 'MONTHLY', carryOver: true },
-  'Sick Leave – Long-term Contract': { days: 90, period: 'ANNUALLY', carryOver: false },
-  'Sick Leave – Short-term Contract': { days: 52, period: 'ANNUALLY', carryOver: false },
-  'Maternity Leave': { days: 98, period: 'ANNUALLY', carryOver: false },
-  'Paternity Leave': { days: 5, period: 'ANNUALLY', carryOver: false },
-  'Compassionate/Special Leave': { days: 7, period: 'ANNUALLY', carryOver: false },
-  'Study Leave': { days: 10, period: 'ANNUALLY', carryOver: false },
-  'Unpaid Leave': { days: 0, period: 'ANNUALLY', carryOver: false },
-  'Other Leave': { days: 0, period: 'ANNUALLY', carryOver: false },
-};
 
 @Injectable()
 export class SettingsService {
@@ -503,61 +465,5 @@ export class SettingsService {
         .onConflictDoNothing({ target: [announcementReads.announcementId, announcementReads.employeeId] }),
     );
     return { id: announcementId, read: true };
-  }
-
-  // --- Leave (per-country-regime leave-type catalog) ---------------------
-
-  /** Returns this regime's leave-type catalog, provisioning it from
-   *  `LEAVE_TYPE_CATALOG` (blank, or the Zambia statutory-baseline defaults
-   *  for 'ZM') the first time it's opened — so every regime always has the
-   *  same 9 rows to configure, never an empty table. */
-  async listLeaveTypes(tenantId: string, countryCode: string) {
-    return withTenant(tenantId, async (tx) => {
-      const existing = await tx
-        .select()
-        .from(leaveTypes)
-        .where(and(eq(leaveTypes.tenantId, tenantId), eq(leaveTypes.countryCode, countryCode)));
-      const existingNames = new Set(existing.map((r) => r.name));
-      const missing = LEAVE_TYPE_CATALOG.filter((c) => !existingNames.has(c.name));
-      if (missing.length === 0) return existing.sort((a, b) => LEAVE_TYPE_CATALOG.findIndex((c) => c.name === a.name) - LEAVE_TYPE_CATALOG.findIndex((c) => c.name === b.name));
-
-      const defaults = countryCode === 'ZM' ? ZM_LEAVE_DEFAULTS : {};
-      const inserted = await tx
-        .insert(leaveTypes)
-        .values(
-          missing.map((c) => ({
-            tenantId,
-            countryCode,
-            name: c.name,
-            isPaid: c.isPaid,
-            defaultAnnualDays: defaults[c.name]?.days ?? 0,
-            accrualPeriod: defaults[c.name]?.period ?? 'ANNUALLY',
-            carryOverEnabled: defaults[c.name]?.carryOver ?? false,
-          })),
-        )
-        .returning();
-      const all = [...existing, ...inserted];
-      return all.sort((a, b) => LEAVE_TYPE_CATALOG.findIndex((c) => c.name === a.name) - LEAVE_TYPE_CATALOG.findIndex((c) => c.name === b.name));
-    });
-  }
-
-  async bulkUpdateLeaveTypes(tenantId: string, dto: BulkUpdateLeaveTypesDto) {
-    return withTenant(tenantId, async (tx) => {
-      const rows = [];
-      for (const r of dto.rows) {
-        const [row] = await tx
-          .update(leaveTypes)
-          .set({
-            defaultAnnualDays: r.defaultAnnualDays,
-            accrualPeriod: r.accrualPeriod,
-            carryOverEnabled: r.carryOverEnabled,
-          })
-          .where(and(eq(leaveTypes.tenantId, tenantId), eq(leaveTypes.id, r.id), eq(leaveTypes.countryCode, dto.countryCode)))
-          .returning();
-        if (!row) throw new NotFoundException(`Leave type ${r.id} not found for ${dto.countryCode}.`);
-        rows.push(row);
-      }
-      return rows;
-    });
   }
 }

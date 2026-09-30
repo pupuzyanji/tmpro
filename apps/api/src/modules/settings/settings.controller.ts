@@ -19,7 +19,6 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { SettingsService } from './settings.service';
 import {
-  BulkUpdateLeaveTypesDto,
   CreateAnnouncementDto,
   CreateBranchDto,
   CreateDepartmentDto,
@@ -209,19 +208,7 @@ export class SettingsController {
     return this.settings.importDesignations(user.tenantId, file.buffer);
   }
 
-  // --- Leave (per-country-regime leave-type catalog) — Admin or HR --------
-
-  @Get('leave-types')
-  @Roles('ADMIN', 'HR')
-  listLeaveTypes(@CurrentUser() user: AuthenticatedUser, @Query('countryCode') countryCode: string) {
-    return this.settings.listLeaveTypes(user.tenantId, countryCode || 'ZM');
-  }
-
-  @Patch('leave-types')
-  @Roles('ADMIN', 'HR')
-  bulkUpdateLeaveTypes(@CurrentUser() user: AuthenticatedUser, @Body() dto: BulkUpdateLeaveTypesDto) {
-    return this.settings.bulkUpdateLeaveTypes(user.tenantId, dto);
-  }
+  // Leave settings moved to LeaveController (/leave/admin/*) in v028.A.
 
   // --- Announcements (Admin or HR) ----------------------------------------
   // Sending is Admin/HR, but every signed-in role can read the list back —

@@ -87,8 +87,8 @@ export default function OrganizationSettingsPage() {
   return (
     <div className="max-w-2xl space-y-6">
     <div className="card space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Company profile</h2>
+      <div className="card-head">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Company profile</h2>
         <p className="text-xs text-slate-400">Shown across the app — login screen, top bar, payslips, announcements.</p>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -268,8 +268,8 @@ function ExportDataCard() {
 
   return (
     <div className="card space-y-3">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Export all data</h2>
+      <div className="card-head">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Export all data</h2>
         <p className="mt-1 text-sm text-slate-500">
           Download everything your organisation has in tmPro — employees, leave, timesheets, payroll, recruitment,
           training and settings — as spreadsheet (CSV) files in a ZIP, with uploaded documents, photos and CVs

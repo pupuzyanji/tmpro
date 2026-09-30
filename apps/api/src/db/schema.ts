@@ -21,6 +21,8 @@ import {
   uniqueIndex,
   index,
   boolean,
+  numeric,
+  date,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -320,6 +322,16 @@ export const employees = pgTable(
     // this only need it for hourly/casual staff, not everyone. Checked by
     // TimesheetsService.create, not just hidden in the UI.
     timesheetsEnabled: boolean('timesheets_enabled').notNull().default(false),
+
+    // v028.A — leave engine inputs. employmentCategory decides eligibility
+    // (Zambian annual leave excludes TEMPORARY/CASUAL); contractTerm picks the
+    // sick-pay tiers (SHORT ≤ 12 months / LONG); continuousServiceFrom is the
+    // service start including time before the organisation joined tmPro.
+    employmentCategory: varchar('employment_category', { length: 12 }),
+    contractTerm: varchar('contract_term', { length: 6 }),
+    contractEndDate: date('contract_end_date', { mode: 'string' }),
+    continuousServiceFrom: date('continuous_service_from', { mode: 'string' }),
+    workScheduleId: uuid('work_schedule_id'),
 
     // Portrait photo — stored as a data URI (no object storage in this
     // scaffold yet); nullable, falls back to the initials avatar when unset.
@@ -639,27 +651,27 @@ export const leaveTypes = pgTable(
     // false is what payroll's proration engine reads to deduct days from an
     // otherwise-ACTIVE employee's basic pay/allowances for that period.
     isPaid: boolean('is_paid').notNull().default(true),
+    // v028.A — how the type behaves; the numbers live in leavePolicies.
+    // defaultAnnualDays / accrualPeriod / carryOverEnabled above are the
+    // pre-v028 settings, kept only so legacy rows can be converted.
+    code: varchar('code', { length: 32 }),
+    kind: varchar('kind', { length: 12 }).notNull().default('ALLOWANCE'),
+    unitBasis: varchar('unit_basis', { length: 16 }).notNull().default('WORKING_DAYS'),
+    genderRestriction: varchar('gender_restriction', { length: 8 }).notNull().default('ANY'),
+    reasonRequired: boolean('reason_required').notNull().default(false),
+    reasonAllowed: boolean('reason_allowed').notNull().default(true),
+    attachmentRequired: boolean('attachment_required').notNull().default(false),
+    attachmentFromUnits: numeric('attachment_from_units', { precision: 5, scale: 2, mode: 'number' }),
+    approvalFlow: jsonb('approval_flow').$type<string[]>().notNull().default(['SUPERVISOR']),
+    templateItemId: uuid('template_item_id'),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(100),
+    description: text('description'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [
     uniqueIndex('leave_types_tenant_name_country_uq').on(t.tenantId, t.name, t.countryCode),
     index('leave_types_tenant_idx').on(t.tenantId),
-  ],
-);
-
-export const leaveBalances = pgTable(
-  'leave_balances',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
-    employeeId: uuid('employee_id').notNull().references(() => employees.id),
-    leaveTypeId: uuid('leave_type_id').notNull().references(() => leaveTypes.id),
-    balanceDays: doublePrecision('balance_days').notNull().default(0),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
-  },
-  (t) => [
-    uniqueIndex('leave_balances_employee_type_uq').on(t.employeeId, t.leaveTypeId),
-    index('leave_balances_tenant_idx').on(t.tenantId),
   ],
 );
 
@@ -677,6 +689,21 @@ export const leaveRequests = pgTable(
     status: leaveRequestStatusEnum('status').notNull().default('PENDING'),
     approverId: uuid('approver_id').references(() => employees.id),
     decidedAt: timestamp('decided_at'),
+    // v028.A
+    policyId: uuid('policy_id'),
+    startHalf: boolean('start_half').notNull().default(false),
+    endHalf: boolean('end_half').notNull().default(false),
+    eventDate: date('event_date', { mode: 'string' }),
+    multipleBirth: boolean('multiple_birth').notNull().default(false),
+    episodeId: uuid('episode_id'),
+    attachmentDocumentIds: uuid('attachment_document_ids').array().notNull().default([]),
+    requestedByUserId: uuid('requested_by_user_id'),
+    approvalSteps: jsonb('approval_steps').$type<string[]>().notNull().default([]),
+    currentStep: integer('current_step').notNull().default(0),
+    payBreakdown: jsonb('pay_breakdown').$type<Record<string, number>>().notNull().default({}),
+    cancelledAt: timestamp('cancelled_at'),
+    cancelReason: text('cancel_reason'),
+    decisionComment: text('decision_comment'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [
@@ -685,6 +712,198 @@ export const leaveRequests = pgTable(
     index('leave_requests_tenant_status_idx').on(t.tenantId, t.status),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Module 2a — Leave engine (v028.A). See drizzle/0034_leave_engine.sql and
+// src/modules/leave/engine/ for how these fit together.
+// ---------------------------------------------------------------------------
+
+/** Platform-owned country rule templates (no tenant_id, no RLS). */
+export const leaveRuleTemplates = pgTable('leave_rule_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  countryCode: varchar('country_code', { length: 10 }).notNull(),
+  version: varchar('version', { length: 40 }).notNull(),
+  effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+  effectiveTo: date('effective_to', { mode: 'string' }),
+  legalBasis: text('legal_basis').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leaveRuleTemplateItems = pgTable('leave_rule_template_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  templateId: uuid('template_id').notNull(),
+  code: varchar('code', { length: 32 }).notNull(),
+  name: varchar('name', { length: 120 }).notNull(),
+  kind: varchar('kind', { length: 12 }).notNull(),
+  unitBasis: varchar('unit_basis', { length: 16 }).notNull(),
+  cycle: varchar('cycle', { length: 24 }).notNull(),
+  statutoryMin: numeric('statutory_min', { precision: 7, scale: 2, mode: 'number' }),
+  defaults: jsonb('defaults').$type<Record<string, unknown>>().notNull().default({}),
+  sectionRef: varchar('section_ref', { length: 40 }),
+  sortOrder: integer('sort_order').notNull().default(100),
+});
+
+export const publicHolidays = pgTable('public_holidays', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  countryCode: varchar('country_code', { length: 10 }).notNull(),
+  holidayDate: date('holiday_date', { mode: 'string' }).notNull(),
+  name: varchar('name', { length: 120 }).notNull(),
+  isPaid: boolean('is_paid').notNull().default(true),
+  isRemoved: boolean('is_removed').notNull().default(false),
+  sourceRef: text('source_ref'),
+});
+
+export const leaveSettings = pgTable('leave_settings', {
+  tenantId: uuid('tenant_id').primaryKey(),
+  dailyRateDivisor: numeric('daily_rate_divisor', { precision: 6, scale: 2, mode: 'number' }).notNull().default(26),
+  sickEpisodeLinkDays: integer('sick_episode_link_days').notNull().default(14),
+  engineStartedOn: date('engine_started_on', { mode: 'string' }).notNull(),
+  provisionedAt: timestamp('provisioned_at'),
+  lastProcessedAt: timestamp('last_processed_at'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const workSchedules = pgTable('work_schedules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  name: varchar('name', { length: 80 }).notNull(),
+  dayWeights: numeric('day_weights', { precision: 3, scale: 2, mode: 'number' }).array().notNull(),
+  hoursPerDay: numeric('hours_per_day', { precision: 4, scale: 2, mode: 'number' }).notNull().default(8),
+  isDefault: boolean('is_default').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const tenantHolidays = pgTable('tenant_holidays', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  countryCode: varchar('country_code', { length: 10 }),
+  holidayDate: date('holiday_date', { mode: 'string' }).notNull(),
+  name: varchar('name', { length: 120 }).notNull(),
+  isPaid: boolean('is_paid').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leavePolicies = pgTable('leave_policies', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  leaveTypeId: uuid('leave_type_id').notNull(),
+  effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+  effectiveTo: date('effective_to', { mode: 'string' }),
+  entitlement: numeric('entitlement', { precision: 7, scale: 2, mode: 'number' }).notNull().default(0),
+  // v028.C — entitlement that depends on the employee's work week, e.g.
+  // Malawi: [{"minDays": 6, "entitlement": 18}] gives 18 days to anyone
+  // whose schedule adds up to 6 working days a week; everyone else gets
+  // `entitlement` (15). Null/empty = the same for everyone.
+  entitlementByWeek: jsonb('entitlement_by_week').$type<Array<{ minDays: number; entitlement: number }>>(),
+  cycle: varchar('cycle', { length: 24 }).notNull(),
+  accrualFrequency: varchar('accrual_frequency', { length: 10 }).notNull().default('NONE'),
+  proratePartial: boolean('prorate_partial').notNull().default(true),
+  usableAfterMonths: integer('usable_after_months').notNull().default(0),
+  minServiceMonths: integer('min_service_months').notNull().default(0),
+  eligibleCategories: text('eligible_categories').array(),
+  carryForwardMax: numeric('carry_forward_max', { precision: 7, scale: 2, mode: 'number' }),
+  excessAction: varchar('excess_action', { length: 10 }).notNull().default('CARRY_ALL'),
+  allowNegative: numeric('allow_negative', { precision: 7, scale: 2, mode: 'number' }).notNull().default(0),
+  payRules: jsonb('pay_rules').$type<Record<string, any>>().notNull().default({}),
+  eventRules: jsonb('event_rules').$type<Record<string, any>>().notNull().default({}),
+  belowStatutoryOk: boolean('below_statutory_ok').notNull().default(false),
+  exemptionReason: text('exemption_reason'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leaveRequestApprovals = pgTable('leave_request_approvals', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  requestId: uuid('request_id').notNull(),
+  step: integer('step').notNull(),
+  stepRole: varchar('step_role', { length: 12 }).notNull(),
+  decidedByUserId: uuid('decided_by_user_id'),
+  decision: varchar('decision', { length: 10 }).notNull(),
+  comment: text('comment'),
+  decidedAt: timestamp('decided_at').defaultNow().notNull(),
+});
+
+export const leaveRequestDays = pgTable('leave_request_days', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  requestId: uuid('request_id').notNull(),
+  employeeId: uuid('employee_id').notNull(),
+  day: date('day', { mode: 'string' }).notNull(),
+  units: numeric('units', { precision: 4, scale: 2, mode: 'number' }).notNull(),
+  payFactor: numeric('pay_factor', { precision: 3, scale: 2, mode: 'number' }).notNull().default(1),
+});
+
+export const sickLeaveEpisodes = pgTable('sick_leave_episodes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  employeeId: uuid('employee_id').notNull(),
+  startedOn: date('started_on', { mode: 'string' }).notNull(),
+  lastDay: date('last_day', { mode: 'string' }).notNull(),
+  fullPayUsed: numeric('full_pay_used', { precision: 7, scale: 2, mode: 'number' }).notNull().default(0),
+  halfPayUsed: numeric('half_pay_used', { precision: 7, scale: 2, mode: 'number' }).notNull().default(0),
+  unpaidUsed: numeric('unpaid_used', { precision: 7, scale: 2, mode: 'number' }).notNull().default(0),
+  status: varchar('status', { length: 24 }).notNull().default('OPEN'),
+  openingBatchId: uuid('opening_batch_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leaveLedger = pgTable('leave_ledger', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  employeeId: uuid('employee_id').notNull(),
+  leaveTypeId: uuid('leave_type_id').notNull(),
+  policyId: uuid('policy_id'),
+  entryType: varchar('entry_type', { length: 24 }).notNull(),
+  units: numeric('units', { precision: 7, scale: 2, mode: 'number' }).notNull(),
+  effectiveDate: date('effective_date', { mode: 'string' }).notNull(),
+  cycleKey: varchar('cycle_key', { length: 40 }).notNull(),
+  payTier: varchar('pay_tier', { length: 8 }),
+  sourceType: varchar('source_type', { length: 16 }).notNull(),
+  sourceId: uuid('source_id'),
+  idemKey: varchar('idem_key', { length: 200 }),
+  reasonCode: varchar('reason_code', { length: 32 }),
+  note: text('note'),
+  reversesId: uuid('reverses_id'),
+  payrollAdjustmentId: uuid('payroll_adjustment_id'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leaveOpeningBatches = pgTable('leave_opening_batches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  countryCode: varchar('country_code', { length: 10 }).notNull(),
+  cutoverDate: date('cutover_date', { mode: 'string' }).notNull(),
+  status: varchar('status', { length: 10 }).notNull().default('DRAFT'),
+  fileName: varchar('file_name', { length: 255 }),
+  lineCount: integer('line_count').notNull().default(0),
+  errorCount: integer('error_count').notNull().default(0),
+  uploadedBy: uuid('uploaded_by'),
+  postedBy: uuid('posted_by'),
+  postedAt: timestamp('posted_at'),
+  reversedAt: timestamp('reversed_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const leaveOpeningLines = pgTable('leave_opening_lines', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  batchId: uuid('batch_id').notNull(),
+  rowNumber: integer('row_number').notNull(),
+  employeeId: uuid('employee_id'),
+  employeeCode: varchar('employee_code', { length: 40 }),
+  leaveTypeId: uuid('leave_type_id'),
+  leaveCode: varchar('leave_code', { length: 32 }),
+  balance: numeric('balance', { precision: 7, scale: 2, mode: 'number' }),
+  usedThisCycle: numeric('used_this_cycle', { precision: 7, scale: 2, mode: 'number' }),
+  sickFullUsed: numeric('sick_full_used', { precision: 7, scale: 2, mode: 'number' }),
+  sickHalfUsed: numeric('sick_half_used', { precision: 7, scale: 2, mode: 'number' }),
+  sickEpisodeStart: date('sick_episode_start', { mode: 'string' }),
+  serviceFrom: date('service_from', { mode: 'string' }),
+  note: text('note'),
+  errors: jsonb('errors').$type<string[]>().notNull().default([]),
+});
 
 // ---------------------------------------------------------------------------
 // Module 2b — Timesheets (v022.A)
@@ -1006,6 +1225,46 @@ export const payslips = pgTable(
  *  applies one occurrence, and marks the row COMPLETED once `appliedCount`
  *  reaches `occurrences`. An Admin can CANCEL a still-PENDING row before it's
  *  fully applied. */
+// v028.F — the dated employment contract (Job tab → Contract). Contract
+// types follow the Employment Code Act. The employee's employmentCategory /
+// contractTerm / contractEndDate are kept in step with the current contract.
+export const employeeContracts = pgTable(
+  'employee_contracts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
+    contractType: varchar('contract_type', { length: 28 }).notNull(),
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    endDate: date('end_date', { mode: 'string' }),
+    pensionScheme: varchar('pension_scheme', { length: 120 }),
+    gratuityRate: numeric('gratuity_rate', { precision: 5, scale: 2, mode: 'number' }),
+    probationEndDate: date('probation_end_date', { mode: 'string' }),
+    noticePeriodDays: integer('notice_period_days'),
+    reference: varchar('reference', { length: 80 }),
+    notes: text('notes'),
+    createdBy: uuid('created_by'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('employee_contracts_emp_idx').on(t.tenantId, t.employeeId, t.startDate)],
+);
+
+// v028.F — a paid gratuity, one per contract.
+export const gratuitySettlements = pgTable('gratuity_settlements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  employeeId: uuid('employee_id').notNull().references(() => employees.id, { onDelete: 'cascade' }),
+  contractId: uuid('contract_id').notNull().unique(),
+  servedTo: date('served_to', { mode: 'string' }).notNull(),
+  months: numeric('months', { precision: 7, scale: 2, mode: 'number' }).notNull(),
+  basicMonthly: numeric('basic_monthly', { precision: 14, scale: 2, mode: 'number' }).notNull(),
+  rate: numeric('rate', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+  taxFreeAmount: numeric('tax_free_amount', { precision: 14, scale: 2, mode: 'number' }).notNull(),
+  taxableAmount: numeric('taxable_amount', { precision: 14, scale: 2, mode: 'number' }).notNull(),
+  adjustmentIds: jsonb('adjustment_ids').$type<string[]>().notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 export const payrollAdjustments = pgTable(
   'payroll_adjustments',
   {
@@ -1020,6 +1279,10 @@ export const payrollAdjustments = pgTable(
     occurrences: integer('occurrences').notNull().default(1),
     appliedCount: integer('applied_count').notNull().default(0),
     status: payrollAdjustmentStatusEnum('status').notNull().default('PENDING'),
+    // v028.F — a taxable addition is added to gross pay before tax; a
+    // non-taxable one (the default, and every pre-v028.F adjustment) goes
+    // straight to net pay.
+    taxable: boolean('taxable').notNull().default(false),
     createdById: uuid('created_by_id'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
@@ -1152,18 +1415,22 @@ export const usersRelations = relations(users, ({ one }) => ({
 export const employeesRelations = relations(employees, ({ one, many }) => ({
   tenant: one(tenants, { fields: [employees.tenantId], references: [tenants.id] }),
   manager: one(employees, { fields: [employees.managerId], references: [employees.id] }),
-  leaveBalances: many(leaveBalances),
+  leaveLedger: many(leaveLedger),
   leaveRequests: many(leaveRequests),
 }));
 
 export const leaveTypesRelations = relations(leaveTypes, ({ many }) => ({
-  balances: many(leaveBalances),
   requests: many(leaveRequests),
+  policies: many(leavePolicies),
 }));
 
-export const leaveBalancesRelations = relations(leaveBalances, ({ one }) => ({
-  employee: one(employees, { fields: [leaveBalances.employeeId], references: [employees.id] }),
-  leaveType: one(leaveTypes, { fields: [leaveBalances.leaveTypeId], references: [leaveTypes.id] }),
+export const leavePoliciesRelations = relations(leavePolicies, ({ one }) => ({
+  leaveType: one(leaveTypes, { fields: [leavePolicies.leaveTypeId], references: [leaveTypes.id] }),
+}));
+
+export const leaveLedgerRelations = relations(leaveLedger, ({ one }) => ({
+  employee: one(employees, { fields: [leaveLedger.employeeId], references: [employees.id] }),
+  leaveType: one(leaveTypes, { fields: [leaveLedger.leaveTypeId], references: [leaveTypes.id] }),
 }));
 
 export const leaveRequestsRelations = relations(leaveRequests, ({ one }) => ({

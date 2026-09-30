@@ -6,6 +6,7 @@ import { ApiError } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { StatusBadge } from '@/components/status-badge';
 import { IconMaximize, IconMinimize, IconPlay } from '@/components/icons';
+import { COURSE_COVER, courseAccent } from '@/lib/course-accent';
 
 interface QuizOptionAuthored {
   optionText: string;
@@ -106,25 +107,7 @@ export default function TrainingPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {myCourses.map((a) => (
-              <button key={a.id} onClick={() => setOpenAssignment(a)} className="card block text-left hover:border-brand-blue/40">
-                <div className="relative mb-2 aspect-video w-full overflow-hidden rounded-lg bg-slate-100">
-                  {a.course.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={a.course.imageUrl} alt={a.course.title} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-slate-300">
-                      <IconPlay />
-                    </div>
-                  )}
-                </div>
-                <p className="truncate text-sm font-semibold text-ink">{a.course.title}</p>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <StatusBadge status={a.status} kind="course" />
-                  {a.scorePercent !== null && a.status === 'COMPLETED' && (
-                    <span className="text-xs text-slate-500">Score: {a.scorePercent}%</span>
-                  )}
-                </div>
-              </button>
+              <CourseTile key={a.id} a={a} onOpen={() => setOpenAssignment(a)} />
             ))}
           </div>
         )}
@@ -429,5 +412,60 @@ function AssignCoursesPanel({ call }: { call: ReturnType<typeof useApi>['call'] 
         </div>
       )}
     </div>
+  );
+}
+
+// v029.B — each course tile carries its own accent colour (stable per
+// course), a coloured strip and cover, and a progress bar.
+const PROGRESS: Record<Assignment['status'], number> = { PENDING: 0, STARTED: 50, COMPLETED: 100 };
+
+function CourseTile({ a, onOpen }: { a: Assignment; onOpen: () => void }) {
+  const accent = courseAccent(a.course.id);
+  const pct = PROGRESS[a.status];
+  const hasQuiz = (a.course.quizQuestions?.length ?? 0) > 0;
+  return (
+    <button
+      onClick={onOpen}
+      className={`accent-${accent} group relative block overflow-hidden rounded-2xl border border-slate-100 bg-white text-left shadow-card transition hover:-translate-y-0.5 hover:shadow-md`}
+    >
+      <span className="absolute inset-x-0 top-0 z-10 h-1 bg-[color:var(--section)]" />
+      <div className="relative aspect-video w-full overflow-hidden">
+        {a.course.imageUrl ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={a.course.imageUrl} alt={a.course.title} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+            <span className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/0 to-black/0" />
+          </>
+        ) : (
+          <div
+            className="flex h-full w-full items-end p-4"
+            style={{ background: COURSE_COVER }}
+          >
+            <p className="line-clamp-2 text-base font-semibold leading-snug text-white/95 drop-shadow-sm">{a.course.title}</p>
+          </div>
+        )}
+        <span className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[color:var(--section)] shadow-sm transition-transform group-hover:scale-110 [&_svg]:h-4 [&_svg]:w-4">
+          <IconPlay />
+        </span>
+        {hasQuiz && <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--section)]">Quiz</span>}
+      </div>
+      <div className="space-y-2 p-4">
+        {a.course.imageUrl && (
+          <p className="truncate text-sm font-semibold text-ink" title={a.course.title}>
+            {a.course.title}
+          </p>
+        )}
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-[color:var(--section)] transition-all" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <StatusBadge status={a.status} kind="course" />
+            {a.scorePercent !== null && a.status === 'COMPLETED' && <span className="text-xs font-medium text-slate-600">Score {a.scorePercent}%</span>}
+          </div>
+          <span className="text-[11px] text-slate-400">Assigned {new Date(a.assignedAt).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' })}</span>
+        </div>
+      </div>
+    </button>
   );
 }

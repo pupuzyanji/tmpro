@@ -18,6 +18,7 @@ import { OrgSignupModule } from './modules/org-signup/org-signup.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { DataExportModule } from './modules/data-export/data-export.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
 
 @Controller()
 class HealthController {
@@ -47,6 +48,7 @@ class HealthController {
     PlatformAdminModule,
     BillingModule,
     DataExportModule,
+    ContractsModule,
   ],
   controllers: [HealthController],
 })

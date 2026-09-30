@@ -8,19 +8,22 @@ export const metadata: Metadata = {
   description: 'Talent management platform',
 };
 
-// Runs before paint so the page never flashes the classic theme before
-// switching to a remembered "midnight" choice — see the sidebar toggle in
-// app-shell.tsx, which is what actually writes this key.
+// v028.B: Midnight is the default theme, so the server renders
+// <html data-theme="midnight">. This runs before paint and switches to
+// Classic only when that was the remembered choice (written by the sidebar
+// toggle in app-shell.tsx), so the page never flashes the wrong theme.
 const THEME_INIT_SCRIPT = `
   try {
-    var t = localStorage.getItem('tmpro:theme');
-    if (t === 'midnight') document.documentElement.setAttribute('data-theme', 'midnight');
+    if (localStorage.getItem('tmpro:theme') === 'classic') document.documentElement.removeAttribute('data-theme');
   } catch (e) {}
 `;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the init script above may remove data-theme
+    // from <html> before React hydrates, which is intentional. This only
+    // silences that one element's attributes, not its children.
+    <html lang="en" data-theme="midnight" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>

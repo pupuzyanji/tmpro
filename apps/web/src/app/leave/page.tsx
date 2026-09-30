@@ -1,291 +1,135 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
-import { Avatar } from '@/components/avatar';
-import { StatusBadge } from '@/components/status-badge';
-import { fmt } from '@/lib/format';
+import { EntitlementsPanel } from '@/components/leave/balance-cards';
+import { LeaveRequestForm } from '@/components/leave/request-form';
+import { ApprovalQueue, RequestList } from '@/components/leave/request-list';
+import { LeaveOverview, LeaveRequestRow } from '@/lib/leave';
 
-interface LeaveType {
-  id: string;
-  name: string;
-}
-interface LeaveBalance {
-  id: string;
-  balanceDays: number;
-  leaveType: LeaveType;
-}
-interface LeaveRequest {
-  id: string;
-  status: string;
-  days: number;
-  startDate: string;
-  endDate: string;
-  reason: string | null;
-  leaveType: LeaveType;
-  employee?: { firstName: string; lastName: string };
-}
-
-// Paternity/Maternity Leave are gender-restricted (General Info > Basic
-// Information's Gender field) — filtered out of the request form for
-// whoever can't take them, on top of the server-side check in LeaveService.
-const GENDER_RESTRICTED_TYPES: Record<string, 'MALE' | 'FEMALE'> = {
-  'Paternity Leave': 'MALE',
-  'Maternity Leave': 'FEMALE',
-};
-
+/** v028.A — Leave (v029.B: balances in a side panel): your balances, request form and history, and (for
+ *  supervisors, HR and Admins) the approvals waiting on you. HR/Admin can
+ *  also book leave for anyone from here. */
 export default function LeavePage() {
   const { session, ready, call } = useApi();
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
-  const [myRequests, setMyRequests] = useState<LeaveRequest[]>([]);
-  const [types, setTypes] = useState<LeaveType[]>([]);
-  const [gender, setGender] = useState<string | null>(null);
-  const [teamRequests, setTeamRequests] = useState<LeaveRequest[]>([]);
+  const [overview, setOverview] = useState<LeaveOverview | null>(null);
+  const [mine, setMine] = useState<LeaveRequestRow[]>([]);
+  const [queue, setQueue] = useState<{ waiting: LeaveRequestRow[]; recent: LeaveRequestRow[]; waitingOnOthers?: LeaveRequestRow[] } | null>(null);
+  const [people, setPeople] = useState<Array<{ id: string; firstName: string; lastName: string; status: string }>>([]);
+  const [bookFor, setBookFor] = useState('');
+  const [bookOverview, setBookOverview] = useState<LeaveOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const role = session?.user.role;
-  const hasEmployeeProfile = role === 'EMPLOYEE' || role === 'SUPERVISOR';
+  const isHr = role === 'ADMIN' || role === 'HR';
+  const isApprover = isHr || role === 'SUPERVISOR';
+  const hasProfile = !!session?.profile?.id;
 
-  async function refresh() {
-    if (!ready) return;
+  const refresh = useCallback(async () => {
     try {
-      if (hasEmployeeProfile) {
-        const [balRes, reqRes, typesRes, meRes] = await Promise.all([
-          call<LeaveBalance[]>('/leave/balances/me'),
-          call<LeaveRequest[]>('/leave/requests/me'),
-          call<LeaveType[]>('/leave/types'),
-          call<{ gender: string | null }>('/employees/me'),
-        ]);
-        setBalances(balRes);
-        setMyRequests(reqRes);
-        setTypes(typesRes);
-        setGender(meRes.gender);
+      if (hasProfile) {
+        const [o, r] = await Promise.all([call<LeaveOverview>('/leave/me'), call<LeaveRequestRow[]>('/leave/requests/me')]);
+        setOverview(o);
+        setMine(r);
       }
-      if (role === 'SUPERVISOR') {
-        setTeamRequests(await call<LeaveRequest[]>('/leave/requests/team'));
-      }
+      if (isApprover) setQueue(await call('/leave/approvals'));
+      if (isHr && people.length === 0) setPeople(await call('/employees'));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not load leave data.');
+      setError(err instanceof ApiError ? err.message : 'Could not load leave.');
     }
-  }
+  }, [call, hasProfile, isApprover, isHr, people.length]);
 
   useEffect(() => {
-    refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+    if (ready) refresh();
+  }, [ready, refresh]);
 
-  async function decide(id: string, decision: 'approve' | 'decline') {
-    await call(`/leave/requests/${id}/${decision}`, { method: 'POST' });
-    refresh();
-  }
+  useEffect(() => {
+    setBookOverview(null);
+    if (bookFor) call<LeaveOverview>(`/leave/employees/${bookFor}`).then(setBookOverview).catch(() => setBookOverview(null));
+  }, [bookFor, call]);
 
   if (!ready) return null;
 
-  if (role === 'ADMIN' || role === 'HR') {
-    return (
-      <div className="space-y-2">
+  return (
+    <div className="space-y-8">
+      <div>
         <h1 className="text-xl font-semibold text-ink">Leave</h1>
         <p className="text-sm text-slate-500">
-          Leave requests are between an employee and their supervisor. As HR Admin, open a person under{' '}
-          <a className="underline" href="/people">
-            People
-          </a>{' '}
-          to see their leave balance and history on the Leave tab.
+          Balances are kept up to date automatically — annual leave accrues at the end of each month, and weekends and public
+          holidays are never counted.
         </p>
       </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-semibold text-ink">Leave</h1>
-
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
-      {/* Request Leave and your history lead on the left — the things you
-          actually act on; every entitlement type shrinks into one compact
-          list in the slim right-hand panel rather than a wall of stat
-          cards. Below `lg` this just stacks: entitlements panel after the
-          main column, same source order. */}
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_260px]">
-        <div className="space-y-8">
-          <RequestLeaveForm
-            types={types.filter((t) => {
-              const requiredGender = GENDER_RESTRICTED_TYPES[t.name];
-              return !requiredGender || requiredGender === gender;
-            })}
-            onCreated={refresh}
-            call={call}
-          />
+      {isApprover && queue && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Waiting for your approval {queue.waiting.length > 0 && <span className="badge ml-1 bg-amber-50 text-amber-700">{queue.waiting.length}</span>}
+          </h2>
+          <ApprovalQueue rows={queue.waiting} call={call} onChange={refresh} />
+          {!!queue.waitingOnOthers?.length && (
+            <p className="text-xs text-slate-400">
+              {queue.waitingOnOthers.length} more of your team&apos;s requests are waiting for HR.
+            </p>
+          )}
+        </section>
+      )}
 
-          <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Your requests</h2>
-            {myRequests.length === 0 && <p className="text-sm text-slate-500">No requests yet.</p>}
-            <div className="space-y-2">
-              {myRequests.map((r) => (
-                <div key={r.id} className="card flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-ink">
-                      {r.leaveType.name} · {r.days} days
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {fmt(r.startDate)} – {fmt(r.endDate)} {r.reason && `· ${r.reason}`}
-                    </p>
-                  </div>
-                  <StatusBadge status={r.status} />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {role === 'SUPERVISOR' && (
-            <div>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Team approvals</h2>
-              {teamRequests.length === 0 && <p className="text-sm text-slate-500">Nothing waiting on you.</p>}
-              <div className="space-y-2">
-                {teamRequests.map((r) => (
-                  <div key={r.id} className="card flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Avatar name={`${r.employee?.firstName ?? ''} ${r.employee?.lastName ?? ''}`} />
-                      <div>
-                        <p className="text-sm text-ink">
-                          <span className="font-medium">
-                            {r.employee?.firstName} {r.employee?.lastName}
-                          </span>{' '}
-                          · {r.leaveType.name} · {r.days} days
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {fmt(r.startDate)} – {fmt(r.endDate)} {r.reason && `· ${r.reason}`}
-                        </p>
-                      </div>
-                    </div>
-                    {r.status === 'PENDING' ? (
-                      <div className="flex gap-2">
-                        <button className="btn-primary py-1" onClick={() => decide(r.id, 'approve')}>
-                          Approve
-                        </button>
-                        <button className="btn-secondary py-1" onClick={() => decide(r.id, 'decline')}>
-                          Decline
-                        </button>
-                      </div>
-                    ) : (
-                      <StatusBadge status={r.status} />
-                    )}
-                  </div>
-                ))}
+      {hasProfile && overview?.employee && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Your leave</h2>
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="min-w-0 space-y-6">
+              <LeaveRequestForm types={overview.types} call={call} onDone={refresh} />
+              <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-ink">Your requests</h3>
+                <RequestList rows={mine} call={call} onChange={refresh} />
               </div>
             </div>
-          )}
-        </div>
+            <EntitlementsPanel types={overview.types} className="lg:sticky lg:top-6 lg:order-last order-first" />
+          </div>
+        </section>
+      )}
 
-        <div className="card">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Your entitlements</p>
-          {balances.length === 0 ? (
-            <p className="text-xs text-slate-400">No entitlements configured yet.</p>
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {balances.map((b) => (
-                <div key={b.id} className="flex items-baseline justify-between gap-2 py-2">
-                  <span className="text-xs leading-snug text-slate-500">{b.leaveType.name}</span>
-                  <span className="whitespace-nowrap text-sm font-semibold text-ink">
-                    {b.balanceDays}
-                    <span className="text-[10px] font-medium text-slate-400"> d</span>
-                  </span>
-                </div>
-              ))}
+      {isHr && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Book leave for someone</h2>
+          <div className="card space-y-4">
+            <div className="max-w-sm">
+              <label className="label">Employee</label>
+              <select className="input" value={bookFor} onChange={(e) => setBookFor(e.target.value)}>
+                <option value="">Choose a person…</option>
+                {people
+                  .filter((p) => p.status !== 'ALUMNI' && p.id !== session?.profile?.id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.firstName} {p.lastName}
+                    </option>
+                  ))}
+              </select>
             </div>
-          )}
-        </div>
-      </div>
+            {bookFor && bookOverview && (
+              <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="min-w-0">
+                  <LeaveRequestForm types={bookOverview.types} call={call} employeeId={bookFor} onDone={() => {
+                    refresh();
+                    call<LeaveOverview>(`/leave/employees/${bookFor}`).then(setBookOverview);
+                  }} compact />
+                </div>
+                <EntitlementsPanel types={bookOverview.types} title="Their entitlements" className="!shadow-none ring-1 ring-slate-100" />
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {isApprover && queue && queue.recent.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Recent decisions</h2>
+          <RequestList rows={queue.recent.slice(0, 10)} call={call} onChange={refresh} canCancelStarted={isHr} showEmployee />
+        </section>
+      )}
     </div>
-  );
-}
-
-function RequestLeaveForm({
-  types,
-  onCreated,
-  call,
-}: {
-  types: LeaveType[];
-  onCreated: () => void;
-  call: ReturnType<typeof useApi>['call'];
-}) {
-  const [leaveTypeId, setLeaveTypeId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [days, setDays] = useState(1);
-  const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!leaveTypeId && types.length > 0) setLeaveTypeId(types[0].id);
-  }, [types, leaveTypeId]);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-    try {
-      await call('/leave/requests', {
-        method: 'POST',
-        body: JSON.stringify({ leaveTypeId, startDate, endDate, days, reason: reason || undefined }),
-      });
-      setStartDate('');
-      setEndDate('');
-      setDays(1);
-      setReason('');
-      onCreated();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not submit request.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="card space-y-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Request leave</h2>
-      <div className="grid gap-3 sm:grid-cols-4">
-        <div>
-          <label className="label">Type</label>
-          <select className="input" value={leaveTypeId} onChange={(e) => setLeaveTypeId(e.target.value)}>
-            {types.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Start</label>
-          <input type="date" className="input" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-        </div>
-        <div>
-          <label className="label">End</label>
-          <input type="date" className="input" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-        </div>
-        <div>
-          <label className="label">Days</label>
-          <input
-            type="number"
-            min={0.5}
-            step={0.5}
-            className="input"
-            value={days}
-            onChange={(e) => setDays(parseFloat(e.target.value))}
-          />
-        </div>
-      </div>
-      <div>
-        <label className="label">Reason (optional)</label>
-        <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
-      </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn-primary" disabled={submitting || !leaveTypeId}>
-        {submitting ? 'Submitting…' : 'Submit request'}
-      </button>
-    </form>
   );
 }

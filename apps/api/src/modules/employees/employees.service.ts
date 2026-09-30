@@ -3,7 +3,7 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
 import { db, withTenant } from '../../db/client';
-import { branches, departments, designations, sections, employees, tenants, users } from '../../db/schema';
+import { branches, departments, designations, employeeContracts, sections, employees, tenants, users } from '../../db/schema';
 import { countSeatsUsed } from '../../common/seats/seat-policy';
 import { BANDS, isBandKey, nextBand } from '../../common/billing/plans';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
@@ -45,6 +45,12 @@ const LIST_COLUMNS = {
   // Timesheets toggle (v022.A) reads it straight off this list rather than
   // needing a separate per-row detail fetch.
   timesheetsEnabled: employees.timesheetsEnabled,
+  // v029.B — for the People tile view's card and Quick view.
+  location: employees.location,
+  workPhone: employees.workPhone,
+  email: employees.email,
+  employmentType: employees.employmentType,
+  countryCode: employees.countryCode,
 } as const;
 
 // v027.A — every generated login now gets its own random temporary
@@ -227,6 +233,20 @@ export class EmployeesService {
         .insert(employees)
         .values({ tenantId, ...rest, ...(startDate ? { startDate: new Date(startDate) } : {}), ...denorm })
         .returning();
+      // v028.F — every new hire starts with a contract on the Job tab
+      // (permanent, or fixed-term when hired as CONTRACT) that HR refines.
+      const fixed = row.employmentType === 'CONTRACT';
+      await tx.insert(employeeContracts).values({
+        tenantId,
+        employeeId: row.id,
+        contractType: fixed ? 'FIXED_TERM' : 'PERMANENT_NON_PENSIONABLE',
+        startDate: row.startDate.toISOString().slice(0, 10),
+        notes: fixed ? 'Add the end date and gratuity rate.' : null,
+      });
+      await tx
+        .update(employees)
+        .set({ employmentCategory: fixed ? 'FIXED_TERM' : 'PERMANENT' })
+        .where(eq(employees.id, row.id));
       return row;
     });
   }

@@ -1,68 +1,56 @@
 import type { PayrollCalculationInput, PayrollCalculationResult, PayrollRuleset } from './payroll-ruleset.interface';
+import { Band, earningsOf, periodMonths, progressive, round2 } from './common';
 
 /**
- * Malawi "Native" ruleset — illustrative MWK-denominated monthly PAYE bands
- * plus the employee's minimum Pension Act contribution. NOT verified
- * current Malawi Revenue Authority / Pension Act rates — confirm against
- * mra.mw and current Pension Act minimums before any real payroll run;
- * bands and the contribution rate change from time to time.
+ * Malawi — v029.A (rates in force from 1 January 2026).
  *
- * Same shape as every other native ruleset: gross pay is the sum of Basic
- * Salary, Housing/Transport/Meal/Other allowance, normalized to this run's
- * pay period by PayrollService before reaching here (`components`).
+ * PAYE (Taxation Act, as amended from 1 January 2026), monthly, MWK:
+ *   first K170,000            0%
+ *   K170,001 – K1,570,000     30%
+ *   K1,570,001 – K10,000,000  35%
+ *   above K10,000,000         40%
+ * PAYE is worked out on gross pay (basic, allowances and taxable additions).
+ *
+ * Pension Act 2023 (mandatory occupational pension): the employee pays at
+ * least 5% and the employer at least 10% of pensionable emoluments — basic
+ * pay here. The employer's 10% is shown on the payslip and not deducted.
+ *
+ * Monthly bands and figures apply as published on a monthly run and are
+ * scaled for other period lengths.
  */
-
-// Illustrative monthly PAYE bands (MWK).
-const MW_PAYE_BANDS: Array<{ upTo: number; rate: number }> = [
-  { upTo: 100_000, rate: 0 },
-  { upTo: 330_000, rate: 0.25 },
-  { upTo: 3_000_000, rate: 0.3 },
-  { upTo: Infinity, rate: 0.35 },
+const MW_PAYE_BANDS_2026: Band[] = [
+  { upTo: 170_000, rate: 0 },
+  { upTo: 1_570_000, rate: 0.3 },
+  { upTo: 10_000_000, rate: 0.35 },
+  { upTo: Infinity, rate: 0.4 },
 ];
 
-const PENSION_RATE = 0.05; // employee's minimum contribution under the Pension Act, illustrative
-
-function monthlyPaye(grossPay: number): number {
-  let tax = 0;
-  let lower = 0;
-  for (const band of MW_PAYE_BANDS) {
-    if (grossPay <= lower) break;
-    const taxableInBand = Math.min(grossPay, band.upTo) - lower;
-    tax += taxableInBand * band.rate;
-    lower = band.upTo;
-  }
-  return tax;
-}
+const PENSION_EMPLOYEE = 0.05;
+const PENSION_EMPLOYER = 0.1;
 
 export const mwPayrollRuleset: PayrollRuleset = {
   countryCode: 'MW',
   calculatePayPeriod(input: PayrollCalculationInput): PayrollCalculationResult {
-    const c = input.components;
-    const basicSalary = round2(c.basicSalary ?? 0);
-    const housingAllowance = round2(c.housingAllowance ?? 0);
-    const transportAllowance = round2(c.transportAllowance ?? 0);
-    const lunchAllowance = round2(c.lunchAllowance ?? 0);
-    const otherAllowance = round2(c.otherAllowance ?? 0);
-    const grossPay = round2(basicSalary + housingAllowance + transportAllowance + lunchAllowance + otherAllowance);
+    const { earnings, grossPay } = earningsOf(input);
+    const months = periodMonths(input);
+    const bands = MW_PAYE_BANDS_2026.map((b) => ({ ...b, upTo: b.upTo * months }));
 
-    const paye = round2(monthlyPaye(grossPay));
-    const pension = round2(grossPay * PENSION_RATE);
-    const deductions = round2(pension);
-    const netPay = round2(grossPay - paye - deductions);
+    const paye = round2(progressive(bands, grossPay));
+    const pension = round2(earnings.basicSalary * PENSION_EMPLOYEE);
+    const employerPension = round2(earnings.basicSalary * PENSION_EMPLOYER);
+    const deductions = pension;
 
     return {
       grossPay,
       tax: paye,
       deductions,
-      netPay,
+      netPay: round2(grossPay - paye - deductions),
       components: {
-        earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance },
+        currency: 'MWK',
+        earnings,
         statutory: { paye, pension },
+        employer: { employerPension },
       },
     };
   },
 };
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

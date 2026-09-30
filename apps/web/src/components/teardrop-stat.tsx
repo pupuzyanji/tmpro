@@ -19,6 +19,15 @@ const TEARDROP_GRADIENTS = {
   indigo: ['#5B21D6', '#8B2FD9'],
 } as const;
 
+// v028.B — the short accent bar under the label in the Classic theme
+// (proposal C). Midnight marks the whole card's header band instead.
+const MARKER_COLORS = {
+  cyan: '#2B3AF5',
+  violet: '#8B2FD9',
+  orange: '#D626C9',
+  indigo: '#5B21D6',
+} as const;
+
 const SIZES = {
   lg: { outer: 112, thickness: 14, text: 'text-3xl' },
   md: { outer: 80, thickness: 10, text: 'text-xl' },
@@ -52,9 +61,12 @@ export function TeardropStat({
     </div>
   );
   const labelEl = (
-    <p className={`text-xs font-semibold uppercase tracking-wide text-slate-500 ${href ? 'group-hover:text-brand-blue' : ''}`}>
-      {label}
-    </p>
+    <>
+      <p className={`text-xs font-semibold uppercase tracking-wide text-slate-500 ${href ? 'group-hover:text-brand-blue' : ''}`}>
+        {label}
+      </p>
+      <span className="theme-classic-only block h-1 w-7 rounded" style={{ background: MARKER_COLORS[color] }} aria-hidden />
+    </>
   );
 
   if (href) {

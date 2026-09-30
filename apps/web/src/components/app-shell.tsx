@@ -8,6 +8,8 @@ import { apiFetch } from '@/lib/api';
 import { Logo, LogoMark } from '@/components/logo';
 import { Avatar } from '@/components/avatar';
 import { ChangePasswordModal } from '@/components/change-password-modal';
+import { APP_VERSION } from '@/lib/version';
+import { accentClass } from '@/lib/section-accent';
 import { BillingBanner } from '@/components/billing-banner';
 import {
   IconGrid,
@@ -46,9 +48,9 @@ const PUBLIC_ROUTE_PREFIXES = ['/careers', '/platform-admin'];
 const SIDEBAR_COLLAPSED_KEY = 'tmpro:sidebar-collapsed';
 // Two theme options, flipped via `data-theme` on <html> (see globals.css for
 // the CSS-variable definitions and layout.tsx for the flash-avoidance
-// script): 'classic' is the original tmPro brand look (the CSS default, no
-// attribute needed); 'midnight' is the second option modeled on a reference
-// fintech-dashboard screenshot the user supplied.
+// script): 'classic' is the original tmPro brand look (no attribute);
+// 'midnight' is modeled on a reference fintech-dashboard screenshot the user
+// supplied, and is the default since v028.B.
 const THEME_KEY = 'tmpro:theme';
 type Theme = 'classic' | 'midnight';
 
@@ -65,7 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Remembered per-browser (not per-user data, so localStorage is fine here)
   // so the sidebar stays collapsed/expanded across page loads.
   const [collapsed, setCollapsed] = useState(false);
-  const [theme, setTheme] = useState<Theme>('classic');
+  const [theme, setTheme] = useState<Theme>('midnight');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       // own state in sync with what's on the page.
       setTheme(document.documentElement.getAttribute('data-theme') === 'midnight' ? 'midnight' : 'classic');
     } catch {
-      // localStorage unavailable (private browsing, etc.) — default expanded/classic
+      // localStorage unavailable (private browsing, etc.) — default expanded/midnight
     }
   }, []);
 
@@ -257,7 +259,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               collapsed ? 'justify-center' : 'justify-between'
             }`}
           >
-            <span className="flex items-center gap-2.5">
+            <span className="flex items-center gap-2.5 whitespace-nowrap">
               <IconPalette />
               {!collapsed && (theme === 'classic' ? 'Classic theme' : 'Midnight theme')}
             </span>
@@ -307,6 +309,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <IconLogout />
             {!collapsed && 'Log out'}
           </button>
+          {!collapsed && <p className="mt-2 px-3 text-[10px] tracking-wide text-white/35">tmPro {APP_VERSION}</p>}
         </div>
       </aside>
 
@@ -325,7 +328,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Avatar name={personName} size="sm" />
         </header>
         <BillingBanner accessToken={session.accessToken} role={session.user.role} />
-        <main className="mx-auto w-full max-w-5xl flex-1 px-8 py-8">{children}</main>
+        <main className={`mx-auto w-full max-w-5xl flex-1 px-8 py-8 ${accentClass(pathname)}`}>{children}</main>
       </div>
     </div>
     {showPasswordModal && (

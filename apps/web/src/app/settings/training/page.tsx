@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
 import { IconPencil, IconPlus, IconTrash, IconUpload } from '@/components/icons';
+import { COURSE_COVER, courseAccent } from '@/lib/course-accent';
 
 interface QuizOption {
   id?: string;
@@ -251,13 +252,14 @@ function CourseCard({
   }
 
   return (
-    <div className="card space-y-3">
+    <div className={`card relative space-y-3 overflow-hidden accent-${courseAccent(course.id)}`}>
+      <span className="absolute inset-y-0 left-0 w-1 bg-[color:var(--section)]" />
       <div className="flex items-start gap-3">
         {course.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={course.imageUrl} alt={course.title} className="h-16 w-24 rounded-lg border border-slate-200 object-cover" />
         ) : (
-          <div className="flex h-16 w-24 items-center justify-center rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400">
+          <div className="flex h-16 w-24 items-center justify-center rounded-lg text-[10px] font-medium text-white/90" style={{ background: COURSE_COVER }}>
             No image
           </div>
         )}

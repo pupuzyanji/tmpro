@@ -1859,3 +1859,385 @@ postcss; **16.3.6 audits clean (0 vulnerabilities)**.
 all 22 app pages plus the 6 public pages: everything renders, and there are no page
 errors. The only console error was the existing 404 from `/api/employees/me` for an
 Admin with no employee record.
+
+## v029.B — Leave side panel, People tiles, contracts ending, training tiles (2026-10-01)
+
+**Leave entitlements side panel.** The Leave page and People → (person) → Leave now show balances in a "Leave entitlements" panel on the right, one row per leave type, as the pre-v028 layout did. The panel is built on the v028 engine's figures:
+- days available;
+- what's pending;
+- the next accrual;
+- "from" dates and overdue warnings.
+
+On the Leave page, the request form and "Your requests" sit on the left. On the Leave tab, the requests and balance history sit on the left. "Book leave for someone" shows the person's entitlements beside the form. The top-of-page balance cards are gone. The `BalanceCards` component stays in the codebase but is no longer used.
+
+**People: tile view by default.**
+- Tiles are grouped by department, with each department's total count.
+- Each tile shows the photo or initials, name, job title, a "View full profile" link, a "Quick view" button and the location.
+- Tiles are paginated: 12, 24 or 48 per page.
+- **Quick view** opens a card with email, work phone, location, department, employee number, employment type, start date and manager.
+- A Tiles / List toggle switches back to the sortable list. The choice is remembered in the browser.
+- `GET /employees` now also returns `location`, `workPhone`, `email`, `employmentType` and `countryCode`.
+
+**Dashboard: contracts ending in the next 6 months** (Admin and HR).
+- A new `GET /contracts/expiring` lists each person's latest contract that ends within six months. It also includes contracts that have already ended while the person is still active. A renewed contract drops off the list.
+- Each row shows the contract type, end date and time left. Colours mark urgency: red within 30 days, amber within 90.
+- Where a fixed-term contract earns gratuity, the row shows the gratuity accrued so far.
+- Rows link to the person's Job tab.
+
+**Training tiles.** Each course has its own accent colour (stable per course, `lib/course-accent.ts`), shown as:
+- a coloured top strip;
+- a gradient cover with the title when there's no image (an image gets a soft shade instead);
+- a play button and a "Quiz" chip when the course has a quiz;
+- a progress bar (not started, started, completed), the status and score, and the date assigned.
+
+Settings → Training course cards get the same accent strip and cover.
+
+No migration. Versions: `APP_VERSION` `v029.B`; both package.json files `0.29.1`.
+
+## v029.A — Payroll rules for Malawi, New Zealand, Australia, South Africa and Zimbabwe (2026-09-30)
+
+The five countries added to the leave engine in v028.C–E now have payroll rules with researched current rates. The earlier MW/NZ/ZA/ZW rulesets were illustrative; AU is new. Each ruleset file lists its sources, effective dates and what it leaves out.
+
+**Malawi (MWK)** — `mw-payroll-ruleset.ts`
+- PAYE from 1 January 2026, monthly: first K170,000 at 0%, to K1,570,000 at 30%, to K10,000,000 at 35%, above that 40%.
+- Pension Act 2023: employee 5% of basic pay, deducted. Employer 10%, shown.
+
+**New Zealand (NZD)** — `nz-payroll-ruleset.ts`
+- PAYE on the brackets in force since 31 July 2024: 10.5 / 17.5 / 30 / 33 / 39%, tax code M.
+- ACC earners' levy, by ACC year: 1.75% up to $156,641 from 1 April 2026; 1.67% up to $152,790 before that.
+- KiwiSaver at the tax profile's rate, taken as a fraction or a percent. The default is 3.5% from 1 April 2026 (3% before). The employer's matching contribution is shown gross; ESCT is not worked out.
+
+**Australia (AUD)** — new `au-payroll-ruleset.ts`, added to the registry
+- Resident rates, picked by income year from the period end:
+  - 2026–27: 15% on $18,201–45,000;
+  - 2025–26: 16%.
+- Low income tax offset.
+- Medicare levy 2%, phased in above $27,222.
+- This works out annual tax for a resident claiming the tax-free threshold. It is close to the ATO Schedule 1 withholding formulas but not identical.
+- Super guarantee: 12% of ordinary earnings (not one-off additions), shown.
+
+**South Africa (ZAR)** — `za-payroll-ruleset.ts`
+- SARS tables by tax year from 1 March:
+  - 2027 year: R245,100 … R1,878,600 brackets, primary rebate R17,820;
+  - 2026 year: primary rebate R17,235.
+- UIF 1% up to R17,712 a month, deducted.
+- Employer UIF 1% and SDL 1%, shown.
+- Not applied: age rebates, medical credits, retirement-fund deductions.
+
+**Zimbabwe (USD)** — `zw-payroll-ruleset.ts`
+- ZIMRA USD monthly bands: 0 / 20 / 25 / 30 / 35 / 40% at 100 / 300 / 1,000 / 2,000 / 3,000.
+- NSSA 4.5% up to US$700 a month, now deducted *before* PAYE.
+- AIDS levy 3% of PAYE.
+- Employer NSSA, shown.
+- Tax credits are not applied.
+- ZiG payroll is not modelled.
+
+**Engine:**
+- New `rulesets/common.ts`: progressive bands, earnings lines, period fractions.
+- A monthly run (28–31 days) counts as exactly 1/12 of a year and one month. Annual tables then give the same figure every month, and monthly bands and caps apply as published.
+- The ruleset input now carries `periodEnd`, so a ruleset can pick the tax year in force.
+- Payslip components add `employer` (contributions on top of pay) and `currency` (the ruleset's currency).
+
+**Web:**
+- Payslips have a "Paid by the employer (not deducted)" section and show amounts in the country's currency.
+- The pay-run country list names each country; AU can now be run.
+- New help article: "What each country's payroll works out".
+
+**Tested:** hand-worked figures for all five countries (29 checks) and September 2026 pay runs for each on a local test database:
+- MW: K1,000,000 → PAYE K249,000, pension K50,000.
+- NZ: $70,000 a year → PAYE $13,220.50, ACC $1,225, KiwiSaver 3.5%.
+- AU: $80,000 → PAYG $14,520 + Medicare $1,600; the low income offset and Medicare phase-in were checked at $30k and $40k.
+- ZA: R360,000 → R56,172 for the 2027 year (R4,681 a month).
+- ZW: US$1,500 → NSSA $31.50, PAYE $355.55, AIDS levy $10.67.
+
+No migration. Versions: `APP_VERSION` `v029.A`; both package.json files `0.29.0`.
+
+## v028.F — Employment contracts and gratuity (2026-09-30)
+
+**Contracts (Job tab → Contract).** Each contract is a dated record, stored in the new `employee_contracts` table. It holds:
+- the type, as the Employment Code Act names it: Permanent (pensionable), Permanent (non-pensionable), Fixed-term, Temporary or Casual;
+- start and end dates (fixed-term and temporary contracts need an end date);
+- pension scheme (pensionable contracts only);
+- gratuity rate (fixed-term only);
+- probation end, notice period, reference and notes.
+
+A renewal is a new contract. The contract in force keeps the employee's leave-rule fields in step:
+- category;
+- contract term: SHORT for 12 months or less, and for casuals;
+- contract end date.
+
+The Leave profile no longer edits these; it points to the contract. Every existing employee got a starting contract from their record: permanent staff as "non-pensionable" (HR marks pensionable staff). New hires get one automatically.
+
+**Gratuity (Zambia, Employment Code Act s.73):**
+- **Who earns it:** fixed-term contracts of 12 months or longer.
+- **Amount:** at least 25% × last-drawn basic pay (no allowances or bonuses) × months served. A lower rate is refused. Organisations may set more (30, 35, 40%…).
+- **Contract section:** shows the gratuity built up so far and what's been paid.
+- **Payment:** when a contract ends, or the person leaves early, the next pay run for that country pays it automatically (`gratuity_settlements`, one per contract). It comes as two payroll additions: the statutory 25% **tax-free**, and anything above 25% **taxable** through PAYE.
+- **Locking:** a contract whose gratuity has been paid can't be edited or deleted.
+- **Other countries:** gratuity only applies if a rate is set, and all of it is taxable.
+- **Report:** new Reports → "Gratuity liability".
+
+**Payroll:**
+- `payroll_adjustments.taxable`: a taxable addition joins gross pay before the ruleset works out tax. Non-taxable additions and all deductions apply to net, as before.
+- Leave pay on termination is now created as taxable.
+- The adjustments form has a "Taxable" tick box (on by default for new additions).
+- Payslips show taxable additions under earnings.
+- Someone with no pay days in a period but money owed (leave pay, gratuity) now gets a final payslip instead of being skipped.
+
+**Also:** a new help article, "Record an employment contract and gratuity".
+
+**Tested** on a local test database:
+- a rate below 25% is refused, and a renewal defaults to 25%;
+- 30 months × K11,200 at 30% = K100,800 (K84,000 tax-free + K16,800 taxable);
+- the current contract accrues;
+- a 10-month contract earns no gratuity and counts as short-term;
+- a temporary contract excludes Zambian annual leave;
+- the liability report;
+- the October pay run adds K16,800 to gross (taxed) and K84,000 to net;
+- a paid contract is locked.
+
+Migration: `0038_contracts_gratuity.sql`. Versions: `APP_VERSION` `v028.F`; both package.json files `0.28.5`.
+
+## v028.E — South Africa and Zimbabwe leave rules (2026-09-30)
+
+Countries 5 and 6 on the leave engine. Migration: `0037_leave_za_zw.sql`. Project doc: `tmpro-leave-za-zw.md`.
+
+**South Africa** (`ZA-BCEA-1997.2025`, BCEA as read with Van Wyk [2025] ZACC 20):
+- **Annual:** 3 weeks, accruing monthly, flagged if not taken within 6 months, paid out on termination.
+- **Sick:** 6 weeks per 36-month cycle; 1 day per 26 worked in the first 6 months.
+- **Family responsibility:** 3 days after 4 months, for people who work 4 or more days a week.
+- **Parental:** 132 days unpaid per birth (shared by the parents).
+- **Unpaid leave.**
+- **Public holidays:** a Sunday holiday moves to the Monday.
+
+**Zimbabwe** (`ZW-LA-28.01.2023`, Labour Act as amended in 2023):
+- **Vacation:** 30 calendar days, accruing monthly, pausing at 90, paid out on termination.
+- **Sick:** 90 days full pay then 90 half pay per year of service.
+- **Maternity:** 98 days full pay, no service minimum.
+- **Special:** 12 days per calendar year.
+- **Unpaid leave.**
+- **Public holidays:** Sunday rule; Heroes' Day and Defence Forces Day in August.
+
+**Engine additions:**
+- Multi-year sick cycles, sick caps in days, and the early-period sick rate.
+- Balance cap on monthly accruals.
+- Minimum work week for eligibility.
+- Configurable maternity return reference.
+- Per-country legacy merges. Stockhub's pre-v028 SA types are converted: Compassionate becomes Family responsibility, Maternity becomes Parental, and Paternity is merged into Parental.
+
+**UI:** Settings → Leave country list and explanations; sick-cycle wording on leave cards; two help articles.
+
+**Tested** on a local test database:
+- SA leave:
+  - annual 15 days, and 9 on a 3-day week;
+  - overdue flag;
+  - sick leave: 30 days per cycle, and 3 of 5 days paid in the first 6 months;
+  - family responsibility: from 4 months, and blocked for a 3-day week;
+  - parental 132 days unpaid.
+- SA holidays: Sunday holidays observed on the Monday.
+- Zimbabwe:
+  - vacation capped at 90, counting calendar days;
+  - holidays: Heroes' Day and Defence Forces Day;
+  - sick 90 full + 10 half;
+  - maternity 98 days with no service minimum;
+  - special leave 12 days.
+- Legacy SA types converted.
+- Zambia, Malawi, New Zealand and Australia unchanged.
+
+Versions: `APP_VERSION` `v028.E`; both package.json files `0.28.4`.
+
+## v028.D — New Zealand and Australia leave rules (2026-09-30)
+
+New Zealand and Australia are the third and fourth countries on the leave engine. Migration: `0036_leave_nz_au.sql`. Project doc: `tmpro-leave-nz-au.md`.
+
+**New Zealand** (`NZ-HA-2003.1`, Holidays Act 2003, which stays in force until the Employment Leave Bill replaces it, targeted for 2028):
+- **Annual holidays:** 4 weeks, granted at each work anniversary from 12 months, in working days for the person's week.
+- **Sick leave:** 10 days after 6 months, then every 12 months, capped at 20. Proof after 3 days. Not paid out.
+- **Bereavement:** 3 days (close family, miscarriage or stillbirth) or 1 day (other), after 6 months.
+- **Family violence leave:** 10 days a year after 6 months. No reason asked; goes to HR only.
+- **Parental leave** (26 weeks) and **partner's leave** (2 weeks): unpaid by the employer.
+- **Unpaid leave.**
+- **Public holidays:** Mondayisation and Matariki dates through 2052.
+
+**Australia** (`AU-NES-2009.2026`, National Employment Standards):
+- **Annual leave:** 4 weeks, accruing monthly. Casuals excluded. Paid out on termination.
+- **Personal/carer's leave:** 2 weeks, accruing monthly. Casuals excluded. Not paid out.
+- **Compassionate leave:** 2 days per occasion.
+- **Family and domestic violence leave:** 10 days a year, including casuals.
+- **Parental leave:** 12 months unpaid after 12 months of service.
+- **Unpaid leave.**
+- **Public holidays:** the national set; state holidays are added by the organisation.
+
+**Engine additions:**
+- `payRules.entitlementWeeks`, `firstGrantAfterMonths` and `maxBalance`.
+- Non-payout types left out of the leave liability.
+- Unpaid event leave at pay factor 0.
+- The next grant date shown for yearly-granted types.
+- Country-specific legacy name mapping.
+- The statutory floor check covers weeks-based entitlements.
+
+**UI:** Settings → Leave has New Zealand and Australia in the country list, with weeks-based entitlements shown and editable. There are two new help articles.
+
+**Tested** on a local test database:
+- NZ grants: 20 days at 12 months; sick leave topped up to 20; 12 days on a 3-day week; first sick grant at 6 months.
+- NZ holidays: Matariki, Waitangi Day Mondayised, Labour Day.
+- NZ leave: parental leave unpaid; bereavement 3 days and blocked before 6 months.
+- AU: 1.67 days a month accrual; personal leave accrues; family violence leave 10 days including casuals; casuals have no annual or personal leave.
+- AU holidays: Christmas, Boxing Day and King's Birthday.
+- AU compassionate leave: 2 days per occasion.
+- The liability report excludes sick and personal leave.
+- The 4-week legal floor is enforced.
+- Legacy AU "Sick Leave" types are converted to Personal/Carer's leave.
+- Zambia and Malawi are unchanged.
+
+Versions: `APP_VERSION` `v028.D`; both package.json files `0.28.3`.
+
+## v028.C — Malawi leave rules (2026-09-30)
+
+Malawi is the second country on the v028.A leave engine. The rules come from the Employment Act No. 6 of 2000 as amended by Act No. 17 of 2021, plus the user's decisions. Full write-up: project doc `tmpro-leave-malawi.md`.
+
+**Malawi template `MW-EA-2000.2021` (migration `0035_leave_malawi.sql`):**
+- **Annual** (s.44): 15 working days a year on a 5- or 5½-day week, 18 on a 6-day week, accrued monthly. Leave not taken within 6 months of falling due is **flagged**, never forfeited. It is paid out on termination (s.45).
+- **Sick** (s.46): unpaid in the first 12 months of service. After that, each service year gives 4 weeks full pay then 8 weeks half pay, in working days for the person's week. Certificate required.
+- **Maternity** (s.47): 56 calendar days on full pay, once every 3 years.
+- **Paternity** (s.47A, inserted 2021): 14 calendar days on full pay, once every 3 years.
+- **Company leave (not statutory):** compassionate, family responsibility, study and wedding leave, 5 working days a year each by default.
+- **Unpaid leave.**
+- **Public holidays:** a holiday on a Saturday or Sunday moves to the next working day, cascading. Eid al-Fitr is added yearly as a gazetted or company holiday.
+
+**Engine additions** (all available to any country):
+- `leave_policies.entitlement_by_week`: entitlement by work week.
+- Sick `payRules.mode = "YEARLY"`: a yearly pot with a minimum-service gate.
+- `eventRules.recurrenceYears`: "once every N years". A second event inside the window is allowed but unpaid, with a preview warning.
+- `payRules.useWithinMonths`: overdue-leave flag.
+- **Legacy conversion:** name matching now works for any country with a template. Types converted by name before the country had a template are upgraded in place. If they have history, it is a cut-over from today: the balance is carried and there is a zero opening balance for everyone in that country. Company types keep the organisation's own numbers.
+- The termination payout note no longer quotes Zambia's section.
+
+**UI:**
+- Settings → Leave → Policies (Malawi) shows the work-week entitlement, the yearly sick pot, "paid once every 3 years", "take within 6 months" and "company policy". All are editable, with the statutory floor enforced (including the 6-day-week figure).
+- Leave cards show overdue annual leave and the yearly sick pot.
+- New report: Reports → Overdue annual leave.
+- New help article: "Leave rules for employees in Malawi".
+
+**Tested** on a copy of the local database, including a simulated tenant with name-converted Malawi types:
+- 15, 18 and 15 days for 5, 6 and 5½-day weeks;
+- overdue flag and report;
+- sick leave unpaid before 12 months;
+- 20 full + 5 half-pay days, and 10 + 5 after 10 days used;
+- paternity 14 days paid, a second within 3 years unpaid, paid again after 3 years;
+- maternity 56 days;
+- Mother's Day and Christmas/Boxing Day observed dates;
+- the floor check on the 6-day figure;
+- legacy upgrade, including a company type keeping its 10 days;
+- Zambia unchanged.
+
+Versions: `APP_VERSION` `v028.C`; both package.json files `0.28.2`.
+
+## v028.B — Section accents, Midnight by default (2026-09-30)
+
+**Midnight is now the default theme.** The server renders `<html data-theme="midnight">`. The script in `layout.tsx` switches to Classic before paint only when someone chose Classic with the sidebar switch on that device. Existing Classic choices are kept.
+
+**Section accents** (chosen from four mock-ups: C for Classic, D for Midnight):
+- Every area has a colour, set on `<main>` from the route by `lib/section-accent.ts`:
+  - blue: Dashboard, People;
+  - cyan: Leave;
+  - teal: Timesheets;
+  - orange: Payroll;
+  - purple: Recruitment;
+  - magenta: Performance;
+  - green: Training;
+  - indigo: Documents, Settings (Settings → Leave cyan, Training green, Billing orange);
+  - slate: Reports.
+- A titled card marks its header with `card-head` (the header wrapper) and `card-title` (the title text). See the comment in `globals.css`.
+  - Classic: a short coloured bar beside the title.
+  - Midnight: a tinted header band across the top of the card, with a coloured dot.
+- Dashboard:
+  - the stats card gets an "At a glance" band in Midnight, and a coloured bar under each ring's label in Classic;
+  - the panels are cyan (leave), magenta (pending requests) and orange (birthdays);
+  - each quick link takes the colour of the area it opens.
+- Titled cards now marked: payroll returns and additions, Settings → Leave, Organisation, Branches, Designations, Announcements and Billing, the People-profile sections, and Reports.
+
+**Fix:** the dashboard's leave-balance column still called `/leave/balances/me`, which v028.A removed. It now reads `/leave/me` and shows annual leave, plus allowances the person has used.
+
+**Also:** the sidebar theme label stays on one line.
+
+Versions: `APP_VERSION` `v028.B`; both package.json files `0.28.1`.
+
+## v028.A — Leave engine: ledger, Zambian statutory rules, opening balances (2026-09-29)
+
+Replaces the v014 leave model, which recomputed balances on every read from three numbers per type, with a ledger-based engine. Design and legal research: project doc `tmpro-leave-zambia.md`. Developer guide: `docs/LEAVE-ENGINE.md`. The app version shows in the sidebar footer (`apps/web/src/lib/version.ts`), and both package.json files are `0.28.0`.
+
+**Data (migration `0034_leave_engine.sql`):**
+- Platform country templates: Zambia (Employment Code Act 2019, ss.35–47) and a generic fallback.
+- Effective-dated `leave_policies`.
+- Append-only `leave_ledger`.
+- `leave_request_days` (per-day pay factors for payroll).
+- `leave_request_approvals` (multi-step).
+- `sick_leave_episodes`.
+- Opening-balance batches and lines.
+- `work_schedules`, `tenant_holidays`, `public_holidays` (2026 election and inauguration days) and `leave_settings`.
+- New fields on `leave_types`, `leave_requests` and `employees`: employment category, contract term, contract end date, continuous-service date, work week.
+- `leave_balances` is dropped.
+
+**Zambian rules built in:**
+- Annual: 2 days/month, usable after 6 months, casual/temporary excluded, paid out on termination.
+- Sick: short contract 26 + 26 working days; long contract 3 + 3 months at full then half pay; discharge review flag.
+- Compassionate: 12 days per calendar year.
+- Family responsibility: 7 days, plus 3 for childcare, after 6 months.
+- Maternity: 98 calendar days, +28 for a multiple birth, full pay from 24 months.
+- Paternity: 5 working days within 7 days of the birth, after 12 months.
+- Mother's Day: 1 day/month, no reason, auto-approved.
+- Unpaid leave.
+- Public holidays generated by rule, including the Sunday→Monday rule. Working days use each person's work week.
+
+**Features:**
+- Live request preview (days, holidays skipped, balance before/after, pay tiers, rule errors and warnings).
+- Half days.
+- Supporting documents (filed under Documents).
+- Approval flows per type: supervisor, supervisor → HR, HR, or automatic. Approval re-checks the balance.
+- An HR/Admin approval queue. Previously HR/Admin had no queue.
+- HR booking on someone's behalf.
+- Cancellation posts reversals.
+- People → Leave shows:
+  - the leave profile;
+  - balances;
+  - the full balance history (who and why);
+  - adjustments with reason codes and reversal.
+- Settings → Leave has five tabs:
+  - Policies: effective-dated, with the statutory floor enforced unless an exemption reference is given; custom company types.
+  - Public holidays.
+  - Work weeks.
+  - Opening balances: template, upload, validate, post, reverse.
+  - Processing: daily-rate divisor, sick-episode linking, run now.
+- Reports → Leave liability.
+- Payroll applies leave pay factors per day.
+- Termination and cap payouts become payroll additions.
+- Help centre: 10 leave articles (47 in total).
+
+**Conversion of existing data** (automatic on API start-up):
+- Legacy Zambian types are converted in place, keeping their ids. "Sick Leave – Short-term Contract" is merged into Sick Leave; Study/Other Leave are kept as company types.
+- Other countries keep their old numbers as the first policy version.
+- Every approved request becomes a ledger entry plus per-day rows.
+- Pending requests get an approval flow.
+- Balances are accrued from each person's service start until an opening-balance batch sets them.
+- Terminations dated before the engine was switched on are closed off in the ledger without creating payroll additions.
+
+**Removed:** `/settings/leave-types` endpoints (replaced by `/leave/admin/*`) and the old recompute-on-read code.
+
+**Verified:**
+- `tsc` clean (API and web). `next build` clean.
+- Migration and conversion run on a copy of the demo database: 3 active tenants provisioned, legacy requests migrated.
+- API scenario suites all pass:
+  - Working-day counting with the observed-holiday rule and the gazetted inauguration day.
+  - Half days; weekend-only and over-balance requests rejected.
+  - Request → supervisor approval → balance; cancellation restores it.
+  - Sick: certificate rule, episode linking, full → half → unpaid tiers across 6 months.
+  - Paternity window; maternity gender, 98 days and twins.
+  - Mother's Day auto-approved, once a month.
+  - Adjustments and reversal permissions.
+  - Opening balances: validation, posting, idempotent reprocessing, reversal and re-posting.
+  - Statutory floor refused; effective-dated and scheduled policy versions.
+  - Termination payout creates a payroll addition.
+  - Liability report.
+  - Payroll: 5 unpaid days take 5/31 off January pay, and cancelling restores it.
+- Browser screenshots of every screen as employee, supervisor and admin, with no page errors.

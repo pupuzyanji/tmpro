@@ -230,9 +230,9 @@ export default function BillingSettingsPage() {
       {/* Change plan */}
       {s.selfServe && (
         <div className="card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="card-head flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold text-ink">Change plan</h3>
+              <h3 className="card-title text-base font-bold text-ink">Change plan</h3>
               <p className="text-sm text-slate-500">
                 Upgrades apply now — you pay only the difference for the rest of this month. Downgrades apply from your
                 next invoice.

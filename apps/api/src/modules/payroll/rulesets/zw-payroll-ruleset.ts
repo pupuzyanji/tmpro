@@ -1,20 +1,27 @@
 import type { PayrollCalculationInput, PayrollCalculationResult, PayrollRuleset } from './payroll-ruleset.interface';
+import { Band, earningsOf, periodMonths, progressive, round2 } from './common';
 
 /**
- * Zimbabwe "Native" ruleset — illustrative USD-denominated monthly PAYE
- * bands (formal-sector Zimbabwe payroll is commonly run in USD), plus NSSA
- * (Pension and Other Benefits Scheme) and the AIDS Levy. NOT verified
- * current ZIMRA/NSSA rates — confirm against zimra.co.zw / nssa.org.zw
- * before any real payroll run; bands, the NSSA ceiling and the levy rate
- * change from time to time.
+ * Zimbabwe — v029.A. USD payroll (formal-sector Zimbabwe payroll is mostly
+ * run in USD; a ZiG table is not modelled here).
  *
- * Same shape as every other native ruleset: gross pay is the sum of Basic
- * Salary, Housing/Transport/Meal/Other allowance, normalized to this run's
- * pay period by PayrollService before reaching here (`components`).
+ * PAYE, ZIMRA USD monthly table (Income Tax Act [Chapter 23:06]):
+ *   0 – 100          0%
+ *   100.01 – 300     20%
+ *   300.01 – 1,000   25%
+ *   1,000.01 – 2,000 30%
+ *   2,000.01 – 3,000 35%
+ *   above 3,000      40%
+ * AIDS levy: 3% of the PAYE worked out.
+ *
+ * NSSA (Pension and Other Benefits Scheme): 4.5% employee + 4.5% employer
+ * on insurable earnings up to USD 700 a month. The employee's NSSA
+ * contribution is deducted from taxable income before PAYE.
+ *
+ * Personal tax credits (elderly, blind, disabled) are not applied — enter
+ * them as a non-taxable addition if they apply.
  */
-
-// Illustrative monthly PAYE bands (USD).
-const ZW_PAYE_BANDS: Array<{ upTo: number; rate: number }> = [
+const ZW_PAYE_BANDS_USD: Band[] = [
   { upTo: 100, rate: 0 },
   { upTo: 300, rate: 0.2 },
   { upTo: 1_000, rate: 0.25 },
@@ -23,53 +30,37 @@ const ZW_PAYE_BANDS: Array<{ upTo: number; rate: number }> = [
   { upTo: Infinity, rate: 0.4 },
 ];
 
-const NSSA_RATE = 0.045; // employee share, illustrative
-const NSSA_CEILING = 700; // illustrative insurable-earnings ceiling (USD)
-const AIDS_LEVY_RATE = 0.03; // 3% of the PAYE amount itself
-
-function monthlyPaye(grossPay: number): number {
-  let tax = 0;
-  let lower = 0;
-  for (const band of ZW_PAYE_BANDS) {
-    if (grossPay <= lower) break;
-    const taxableInBand = Math.min(grossPay, band.upTo) - lower;
-    tax += taxableInBand * band.rate;
-    lower = band.upTo;
-  }
-  return tax;
-}
+const NSSA_RATE = 0.045;
+const NSSA_CEILING_USD = 700; // insurable earnings a month
+const AIDS_LEVY_RATE = 0.03;
 
 export const zwPayrollRuleset: PayrollRuleset = {
   countryCode: 'ZW',
   calculatePayPeriod(input: PayrollCalculationInput): PayrollCalculationResult {
-    const c = input.components;
-    const basicSalary = round2(c.basicSalary ?? 0);
-    const housingAllowance = round2(c.housingAllowance ?? 0);
-    const transportAllowance = round2(c.transportAllowance ?? 0);
-    const lunchAllowance = round2(c.lunchAllowance ?? 0);
-    const otherAllowance = round2(c.otherAllowance ?? 0);
-    const grossPay = round2(basicSalary + housingAllowance + transportAllowance + lunchAllowance + otherAllowance);
+    const { earnings, grossPay } = earningsOf(input);
+    const months = periodMonths(input);
 
-    const basePaye = monthlyPaye(grossPay);
-    const aidsLevy = round2(basePaye * AIDS_LEVY_RATE);
-    const paye = round2(basePaye + aidsLevy);
-    const nssa = round2(Math.min(grossPay, NSSA_CEILING) * NSSA_RATE);
-    const deductions = round2(nssa);
-    const netPay = round2(grossPay - paye - deductions);
+    const insurable = Math.min(grossPay, NSSA_CEILING_USD * months);
+    const nssa = round2(insurable * NSSA_RATE);
+    const employerNssa = nssa;
+
+    const taxable = Math.max(0, grossPay - nssa);
+    const bands = ZW_PAYE_BANDS_USD.map((b) => ({ ...b, upTo: b.upTo * months }));
+    const paye = round2(progressive(bands, taxable));
+    const aidsLevy = round2(paye * AIDS_LEVY_RATE);
+    const tax = round2(paye + aidsLevy);
 
     return {
       grossPay,
-      tax: paye,
-      deductions,
-      netPay,
+      tax,
+      deductions: nssa,
+      netPay: round2(grossPay - tax - nssa),
       components: {
-        earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance },
-        statutory: { paye: round2(basePaye), aidsLevy, nssa },
+        currency: 'USD',
+        earnings,
+        statutory: { paye, aidsLevy, nssa },
+        employer: { employerNssa },
       },
     };
   },
 };
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

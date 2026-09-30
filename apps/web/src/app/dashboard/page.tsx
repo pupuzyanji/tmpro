@@ -7,6 +7,9 @@ import { ApiError } from '@/lib/api';
 import { Avatar } from '@/components/avatar';
 import { TeardropStat } from '@/components/teardrop-stat';
 import { IconUsers } from '@/components/icons';
+import { accentClass } from '@/lib/section-accent';
+import type { LeaveOverview, LeaveTypeOverview } from '@/lib/leave';
+import { formatMoney } from '@/lib/format';
 
 interface Employee {
   id: string;
@@ -16,11 +19,6 @@ interface Employee {
   department: string | null;
   status: string;
   photoUrl: string | null;
-}
-interface LeaveBalance {
-  id: string;
-  balanceDays: number;
-  leaveType: { id: string; name: string; defaultAnnualDays: number };
 }
 interface LeaveRequestMine {
   id: string;
@@ -69,6 +67,28 @@ interface AdminSummary {
   pendingRequests: PendingRequestEntry[];
   birthdays: BirthdayEntry[];
 }
+/** v029.B — GET /contracts/expiring. */
+interface ExpiringContract {
+  contractId: string;
+  employeeId: string;
+  name: string;
+  photoUrl: string | null;
+  jobTitle: string | null;
+  department: string | null;
+  countryCode: string;
+  contractType: string;
+  startDate: string;
+  endDate: string;
+  daysLeft: number;
+  noticePeriodDays: number | null;
+  gratuity: { rate: number; accrued: number } | null;
+}
+interface ExpiringContracts {
+  asOf: string;
+  until: string;
+  months: number;
+  rows: ExpiringContract[];
+}
 interface SupervisorSummary {
   directReportsCount: number;
   pendingRequestsCount: number;
@@ -113,11 +133,12 @@ function monthDay(iso: string) {
 export default function DashboardPage() {
   const { session, ready, call } = useApi();
   const [me, setMe] = useState<Employee | null>(null);
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeOverview[]>([]);
   const [myRequests, setMyRequests] = useState<LeaveRequestMine[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [adminSummary, setAdminSummary] = useState<AdminSummary | null>(null);
   const [supervisorSummary, setSupervisorSummary] = useState<SupervisorSummary | null>(null);
+  const [expiring, setExpiring] = useState<ExpiringContracts | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const role = session?.user.role;
@@ -129,13 +150,15 @@ export default function DashboardPage() {
     (async () => {
       try {
         if (hasEmployeeProfile) {
-          const [meRes, balRes, reqRes] = await Promise.all([
+          // v028.B: balances come from the v028.A leave engine (/leave/me);
+          // the old /leave/balances/me endpoint no longer exists.
+          const [meRes, leaveRes, reqRes] = await Promise.all([
             call<Employee>('/employees/me'),
-            call<LeaveBalance[]>('/leave/balances/me'),
+            call<LeaveOverview>('/leave/me'),
             call<LeaveRequestMine[]>('/leave/requests/me'),
           ]);
           setMe(meRes);
-          setBalances(balRes);
+          setLeaveTypes(leaveRes.types);
           setMyRequests(reqRes);
         }
         if (role === 'EMPLOYEE') {
@@ -143,6 +166,8 @@ export default function DashboardPage() {
         }
         if (role === 'ADMIN' || role === 'HR') {
           setAdminSummary(await call<AdminSummary>('/dashboard/admin-summary'));
+          // Best-effort: the dashboard still loads if contracts can't be read.
+          call<ExpiringContracts>('/contracts/expiring').then(setExpiring).catch(() => setExpiring(null));
         }
         if (role === 'SUPERVISOR') {
           setSupervisorSummary(await call<SupervisorSummary>('/dashboard/supervisor-summary'));
@@ -169,12 +194,16 @@ export default function DashboardPage() {
   const pendingMyRequests = myRequests.filter((r) => r.status === 'PENDING');
 
   // The dashboard's own leave balances are a quick-glance widget, not the
-  // full Leave page — only Annual Leave (always relevant) plus any type the
-  // person has actually applied for. Every other type they've never touched
-  // sits at zero and just adds noise here (the full catalog is still on the
-  // Leave page).
+  // full Leave page — only the accruing type (annual leave, always relevant)
+  // plus any balance-tracked type the person has actually applied for. The
+  // full catalog is on the Leave page.
   const appliedForNames = new Set(myRequests.map((r) => r.leaveType.name));
-  const dashboardBalances = balances.filter((b) => b.leaveType.name === 'Annual Leave' || appliedForNames.has(b.leaveType.name));
+  const dashboardBalances = leaveTypes.filter(
+    (t) =>
+      t.eligible &&
+      (t.kind === 'ACCRUING' || (t.kind === 'ALLOWANCE' && appliedForNames.has(t.name))) &&
+      (t.available ?? t.balance) !== undefined,
+  );
 
   const mainColumn = (
     <div className="min-w-0 space-y-8">
@@ -197,12 +226,13 @@ export default function DashboardPage() {
       </div>
 
       {(role === 'ADMIN' || role === 'HR') && adminSummary && <AdminSummaryPanel summary={adminSummary} />}
+      {(role === 'ADMIN' || role === 'HR') && expiring && <ContractsEndingPanel data={expiring} />}
       {role === 'SUPERVISOR' && supervisorSummary && <SupervisorSummaryPanel summary={supervisorSummary} />}
 
       {role === 'EMPLOYEE' && (
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="card">
-            <p className="label">Unread announcements</p>
+          <div className="card accent-indigo">
+            <p className="card-head card-title label">Unread announcements</p>
             <p className="text-2xl font-semibold text-ink">{unreadAnnouncements.length}</p>
             {unreadAnnouncements.length > 0 ? (
               <ul className="mt-3 space-y-2">
@@ -223,8 +253,8 @@ export default function DashboardPage() {
               <p className="mt-2 text-xs text-slate-400">You&apos;re all caught up.</p>
             )}
           </div>
-          <div className="card">
-            <p className="label">Unapproved requests</p>
+          <div className="card accent-magenta">
+            <p className="card-head card-title label">Unapproved requests</p>
             <p className="text-2xl font-semibold text-ink">{pendingMyRequests.length}</p>
             {pendingMyRequests.length > 0 ? (
               <ul className="mt-3 space-y-1.5">
@@ -250,8 +280,8 @@ export default function DashboardPage() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Quick links</h2>
         <div className="grid gap-3 sm:grid-cols-3">
           {(QUICK_LINKS[role ?? 'EMPLOYEE'] ?? []).map((l) => (
-            <Link key={l.href} href={l.href} className="card block hover:border-brand-blue/40">
-              <p className="text-sm font-semibold text-ink">{l.label}</p>
+            <Link key={l.href} href={l.href} className={`card block hover:border-brand-blue/40 ${accentClass(l.href)}`}>
+              <p className="card-head card-title text-sm font-semibold text-ink">{l.label}</p>
               <p className="mt-1 text-xs text-slate-500">{l.description}</p>
             </Link>
           ))}
@@ -270,21 +300,26 @@ export default function DashboardPage() {
           <div className="space-y-2 lg:sticky lg:top-6">
             <h2 className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Leave balance</h2>
             <div className="space-y-1.5">
-              {dashboardBalances.map((b) => {
-                const total = b.leaveType.defaultAnnualDays;
-                const taken = Math.max(0, total - b.balanceDays);
+              {dashboardBalances.map((t) => {
+                const left = t.available ?? t.balance ?? 0;
                 return (
                   <Link
-                    key={b.id}
+                    key={t.leaveTypeId}
                     href="/leave"
                     className="block rounded-lg border border-slate-100 bg-white p-2 shadow-sm hover:border-brand-blue/40"
                   >
-                    <p className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">{b.leaveType.name}</p>
+                    <p className="truncate text-[9px] font-medium uppercase tracking-wide text-slate-500">{t.name}</p>
                     <p className="text-sm font-semibold leading-tight text-ink">
-                      {b.balanceDays} <span className="text-[9px] font-normal text-slate-500">days left</span>
+                      {left} <span className="text-[9px] font-normal text-slate-500">days left</span>
                     </p>
                     <p className="text-[9px] text-slate-400">
-                      {taken}/{total} taken
+                      {t.kind === 'ALLOWANCE'
+                        ? `${t.used ?? 0}/${t.allotted ?? t.entitlement} taken`
+                        : t.pending
+                          ? `${t.pending} pending approval`
+                          : t.nextAccrual
+                            ? `+${t.nextAccrual.units} on ${new Date(t.nextAccrual.date).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' })}`
+                            : 'Accruing monthly'}
                     </p>
                   </Link>
                 );
@@ -302,14 +337,17 @@ export default function DashboardPage() {
 function AdminSummaryPanel({ summary }: { summary: AdminSummary }) {
   return (
     <div className="space-y-6">
-      <div className="card flex flex-wrap items-center justify-around gap-6 py-6">
-        <TeardropStat value={summary.headcount} label="Headcount" color="cyan" href="/people" />
-        <TeardropStat value={summary.departmentCount} label="Departments" color="violet" href="/settings/departments" />
-        {/* No single "all pending requests" page exists yet (leave and
-            requisition approvals live on separate pages) — this scrolls
-            down to the Pending Requests panel already on this page instead
-            of linking away. */}
-        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" href="#admin-pending-requests" />
+      <div className="card">
+        <GlanceHead />
+        <div className="flex flex-wrap items-center justify-around gap-6 py-1">
+          <TeardropStat value={summary.headcount} label="Headcount" color="cyan" href="/people" />
+          <TeardropStat value={summary.departmentCount} label="Departments" color="violet" href="/settings/departments" />
+          {/* No single "all pending requests" page exists yet (leave and
+              requisition approvals live on separate pages) — this scrolls
+              down to the Pending Requests panel already on this page instead
+              of linking away. */}
+          <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" href="#admin-pending-requests" />
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <OnLeavePanel entries={summary.onLeave} />
@@ -323,9 +361,12 @@ function AdminSummaryPanel({ summary }: { summary: AdminSummary }) {
 function SupervisorSummaryPanel({ summary }: { summary: SupervisorSummary }) {
   return (
     <div className="space-y-6">
-      <div className="card flex flex-wrap items-center justify-around gap-6 py-5">
-        <TeardropStat value={summary.directReportsCount} label="Direct reports" color="cyan" size="md" href="/people" />
-        <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" size="md" href="/leave" />
+      <div className="card">
+        <GlanceHead />
+        <div className="flex flex-wrap items-center justify-around gap-6">
+          <TeardropStat value={summary.directReportsCount} label="Direct reports" color="cyan" size="md" href="/people" />
+          <TeardropStat value={summary.pendingRequestsCount} label="Pending requests" color="orange" size="md" href="/leave" />
+        </div>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         <OnLeavePanel entries={summary.onLeave} title="Team on/about to go on leave" />
@@ -336,10 +377,32 @@ function SupervisorSummaryPanel({ summary }: { summary: SupervisorSummary }) {
   );
 }
 
-function Panel({ title, children, empty, id }: { title: string; children: React.ReactNode; empty: boolean; id?: string }) {
+/** v028.B — the stats card's header. Midnight only: in Classic the rings
+ *  carry their own accent bars (see TeardropStat). */
+function GlanceHead() {
   return (
-    <div id={id} className="card scroll-mt-6">
-      <p className="mb-3 text-sm font-semibold text-ink">{title}</p>
+    <div className="card-head theme-midnight-only">
+      <p className="card-title text-xs font-semibold uppercase tracking-wide text-slate-600">At a glance</p>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  children,
+  empty,
+  id,
+  accent,
+}: {
+  title: string;
+  children: React.ReactNode;
+  empty: boolean;
+  id?: string;
+  accent: 'cyan' | 'magenta' | 'orange';
+}) {
+  return (
+    <div id={id} className={`card scroll-mt-6 accent-${accent}`}>
+      <p className="card-head card-title mb-3 text-sm font-semibold text-ink">{title}</p>
       {empty ? <p className="text-xs text-slate-400">Nothing to show.</p> : <ul className="space-y-2.5">{children}</ul>}
     </div>
   );
@@ -347,7 +410,7 @@ function Panel({ title, children, empty, id }: { title: string; children: React.
 
 function OnLeavePanel({ entries, title = 'Away or about to go on leave' }: { entries: OnLeaveEntry[]; title?: string }) {
   return (
-    <Panel title={title} empty={entries.length === 0}>
+    <Panel title={title} empty={entries.length === 0} accent="cyan">
       {entries.slice(0, 6).map((e) => (
         <li key={`${e.employeeId}-${e.startDate}`}>
           <Link href={`/people/${e.employeeId}?tab=Leave`} className="flex items-center justify-between text-xs hover:opacity-80">
@@ -384,7 +447,7 @@ function PendingRequestsPanel({
   // the panel as a whole doesn't already have one (Admin's view, which also
   // mixes in REQUISITION rows that need a different destination).
   const content = (
-    <Panel title={title} empty={entries.length === 0} id={id}>
+    <Panel title={title} empty={entries.length === 0} id={id} accent="magenta">
       {entries.slice(0, 6).map((e) =>
         linkHref ? (
           <li key={e.id} className="text-xs">
@@ -415,7 +478,7 @@ function PendingRequestsPanel({
 
 function BirthdaysPanel({ entries, title = 'Upcoming birthdays' }: { entries: BirthdayEntry[]; title?: string }) {
   return (
-    <Panel title={title} empty={entries.length === 0}>
+    <Panel title={title} empty={entries.length === 0} accent="orange">
       {entries.slice(0, 6).map((e) => (
         <li key={e.employeeId}>
           <Link href={`/people/${e.employeeId}`} className="flex items-center justify-between text-xs hover:opacity-80">
@@ -429,5 +492,87 @@ function BirthdaysPanel({ entries, title = 'Upcoming birthdays' }: { entries: Bi
         </li>
       ))}
     </Panel>
+  );
+}
+
+const CONTRACT_LABEL: Record<string, string> = {
+  PERMANENT_PENSIONABLE: 'Permanent (pensionable)',
+  PERMANENT_NON_PENSIONABLE: 'Permanent (non-pensionable)',
+  FIXED_TERM: 'Fixed-term',
+  TEMPORARY: 'Temporary',
+  CASUAL: 'Casual',
+};
+const COUNTRY_CURRENCY: Record<string, string> = { ZM: 'ZMW', MW: 'MWK', NZ: 'NZD', AU: 'AUD', ZA: 'ZAR', ZW: 'USD', TZ: 'TZS', GB: 'GBP', FR: 'EUR' };
+
+function endsLabel(daysLeft: number) {
+  if (daysLeft < 0) return `Ended ${-daysLeft} day${daysLeft === -1 ? '' : 's'} ago`;
+  if (daysLeft === 0) return 'Ends today';
+  if (daysLeft === 1) return 'Ends tomorrow';
+  if (daysLeft < 60) return `${daysLeft} days left`;
+  return `${Math.round(daysLeft / 30.4)} months left`;
+}
+function urgency(daysLeft: number) {
+  if (daysLeft <= 30) return 'bg-red-50 text-red-700';
+  if (daysLeft <= 90) return 'bg-amber-50 text-amber-700';
+  return 'bg-slate-100 text-slate-600';
+}
+
+/** v029.B — contracts ending in the next 6 months (and any that have ended
+ *  while the person is still active), so renewals and exits are planned. */
+function ContractsEndingPanel({ data }: { data: ExpiringContracts }) {
+  const rows = data.rows;
+  const within = (n: number) => rows.filter((r) => r.daysLeft <= n).length;
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? rows : rows.slice(0, 8);
+  return (
+    <div className="card accent-purple">
+      <div className="card-head flex flex-wrap items-center justify-between gap-2">
+        <p className="card-title text-sm font-semibold text-ink">Contracts ending in the next {data.months} months</p>
+        <div className="flex flex-wrap gap-1.5 text-[11px]">
+          <span className="badge bg-red-50 text-red-700">{within(30)} within 30 days</span>
+          <span className="badge bg-amber-50 text-amber-700">{within(90)} within 90 days</span>
+          <span className="badge bg-slate-100 text-slate-600">{rows.length} in all</span>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-slate-400">No contracts end before {new Date(data.until).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric' })}.</p>
+      ) : (
+        <>
+          <ul className="divide-y divide-slate-100">
+            {visible.map((r) => (
+              <li key={r.contractId}>
+                <Link href={`/people/${r.employeeId}?tab=Job`} className="flex items-center gap-3 py-2.5 text-xs hover:opacity-80">
+                  <Avatar name={r.name} photoUrl={r.photoUrl} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-ink">{r.name}</p>
+                    <p className="truncate text-slate-400">
+                      {CONTRACT_LABEL[r.contractType] ?? r.contractType}
+                      {r.jobTitle ? ` · ${r.jobTitle}` : ''}
+                      {r.department ? ` · ${r.department}` : ''}
+                    </p>
+                  </div>
+                  {r.gratuity && (
+                    <span className="hidden text-right text-slate-500 sm:block">
+                      Gratuity {r.gratuity.rate}%
+                      <br />
+                      <span className="font-medium text-ink">{formatMoney(r.gratuity.accrued, COUNTRY_CURRENCY[r.countryCode])}</span>
+                    </span>
+                  )}
+                  <span className="w-28 shrink-0 text-right">
+                    <span className="block text-slate-500">{new Date(r.endDate).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                    <span className={`badge mt-0.5 ${urgency(r.daysLeft)}`}>{endsLabel(r.daysLeft)}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {rows.length > 8 && (
+            <button className="mt-2 text-xs font-medium text-brand-blue underline" onClick={() => setShowAll(!showAll)}>
+              {showAll ? 'Show fewer' : `Show all ${rows.length}`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
   );
 }

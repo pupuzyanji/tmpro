@@ -98,6 +98,7 @@ export function JobTab({
   return (
     <div className="space-y-6">
       <StatusHistoryCard employeeId={person.id} call={call} canEdit={canEdit} onRefreshPerson={onRefreshPerson} />
+      <ContractCard employeeId={person.id} call={call} canEdit={canEdit} onRefreshPerson={onRefreshPerson} currency={currency} />
       <TypeHistoryCard employeeId={person.id} call={call} canEdit={canEdit} onRefreshPerson={onRefreshPerson} />
       <CompensationHistoryCard
         employeeId={person.id}
@@ -252,6 +253,193 @@ function TypeHistoryCard({
   );
 }
 
+// ---------------------------------------------------------------- v028.F contracts
+
+export const CONTRACT_TYPE_LABEL: Record<string, string> = {
+  PERMANENT_PENSIONABLE: 'Permanent (pensionable)',
+  PERMANENT_NON_PENSIONABLE: 'Permanent (non-pensionable)',
+  FIXED_TERM: 'Fixed-term',
+  TEMPORARY: 'Temporary',
+  CASUAL: 'Casual',
+};
+
+interface ContractEntry {
+  id: string;
+  contractType: string;
+  startDate: string;
+  endDate: string | null;
+  pensionScheme: string | null;
+  gratuityRate: number | null;
+  probationEndDate: string | null;
+  noticePeriodDays: number | null;
+  reference: string | null;
+  notes: string | null;
+}
+interface GratuityFigure {
+  contractId: string;
+  startDate: string;
+  endDate: string | null;
+  rate: number;
+  statutoryRate: number;
+  eligible: boolean;
+  servedTo: string;
+  months: number;
+  basicMonthly: number;
+  amount: number;
+  taxFree: number;
+  taxable: number;
+  settled: { on: string; amount: number } | null;
+  reason: string | null;
+}
+
+/** v028.F — Job tab → Contract: the dated employment contract (type as the
+ *  Employment Code Act names them, dates, pension, gratuity rate, probation,
+ *  notice) and, for fixed-term contracts, the gratuity it has earned. Leave
+ *  rules and payroll read the contract in force. */
+function ContractCard({
+  employeeId,
+  call,
+  canEdit,
+  onRefreshPerson,
+  currency,
+}: {
+  employeeId: string;
+  call: ReturnType<typeof useApi>['call'];
+  canEdit: boolean;
+  onRefreshPerson: () => void;
+  currency: string | null;
+}) {
+  const [data, setData] = useState<{ contracts: ContractEntry[]; gratuity: GratuityFigure[]; statutoryRate: number | null } | null>(null);
+  function refresh() {
+    return call<{ contracts: ContractEntry[]; gratuity: GratuityFigure[]; statutoryRate: number | null }>(`/employees/${employeeId}/contracts`)
+      .then(setData)
+      .catch(() => {});
+  }
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId]);
+  const body = (v: Record<string, string>) =>
+    JSON.stringify({
+      ...v,
+      endDate: v.endDate || null,
+      gratuityRate: v.gratuityRate === '' ? null : v.gratuityRate,
+      probationEndDate: v.probationEndDate || null,
+      noticePeriodDays: v.noticePeriodDays === '' ? null : v.noticePeriodDays,
+    });
+  const money = (n: number) => formatMoney(n, currency ?? 'ZMW');
+  const today = new Date().toISOString().slice(0, 10);
+  const gratuity = (data?.gratuity ?? []).filter((g) => g.eligible);
+
+  return (
+    <div className="space-y-3">
+      <AddableList<ContractEntry>
+        title="Contract"
+        items={data?.contracts ?? []}
+        canEdit={canEdit}
+        addLabel="New contract"
+        emptyText="No contract on file — add one so leave rules and payroll know the contract type."
+        addFields={[
+          { name: 'contractType', label: 'Contract type', type: 'select', options: Object.entries(CONTRACT_TYPE_LABEL).map(([value, label]) => ({ value, label })) },
+          { name: 'reference', label: 'Contract reference (optional)' },
+          { name: 'startDate', label: 'Start date', type: 'date' },
+          { name: 'endDate', label: 'End date (fixed-term and temporary)', type: 'date' },
+          {
+            name: 'gratuityRate',
+            label: `Gratuity % of basic (fixed-term${data?.statutoryRate ? `, at least ${data.statutoryRate}% for 12 months or longer` : ''})`,
+            type: 'number',
+          },
+          { name: 'pensionScheme', label: 'Pension scheme (pensionable contracts)' },
+          { name: 'probationEndDate', label: 'Probation ends', type: 'date' },
+          { name: 'noticePeriodDays', label: 'Notice period (days)', type: 'number' },
+          { name: 'notes', label: 'Notes', type: 'textarea', span2: true },
+        ]}
+        onAdd={async (v) => {
+          await call(`/employees/${employeeId}/contracts`, { method: 'POST', body: body(v) });
+          await refresh();
+          onRefreshPerson();
+        }}
+        onEdit={async (id, v) => {
+          await call(`/employees/${employeeId}/contracts/${id}`, { method: 'PATCH', body: body(v) });
+          await refresh();
+          onRefreshPerson();
+        }}
+        editValuesFor={(row) => ({
+          contractType: row.contractType,
+          reference: row.reference ?? '',
+          startDate: toDateInput(row.startDate),
+          endDate: row.endDate ? toDateInput(row.endDate) : '',
+          gratuityRate: row.gratuityRate == null ? '' : String(row.gratuityRate),
+          pensionScheme: row.pensionScheme ?? '',
+          probationEndDate: row.probationEndDate ? toDateInput(row.probationEndDate) : '',
+          noticePeriodDays: row.noticePeriodDays == null ? '' : String(row.noticePeriodDays),
+          notes: row.notes ?? '',
+        })}
+        onDelete={async (id) => {
+          await call(`/employees/${employeeId}/contracts/${id}`, { method: 'DELETE' });
+          await refresh();
+          onRefreshPerson();
+        }}
+        columns={[
+          {
+            header: 'Type',
+            render: (row) => (
+              <span className="font-medium">
+                {CONTRACT_TYPE_LABEL[row.contractType] ?? row.contractType}
+                {row.startDate <= today && (!row.endDate || row.endDate >= today) && <span className="badge ml-2 bg-emerald-50 text-emerald-700">current</span>}
+              </span>
+            ),
+          },
+          { header: 'Start', render: (row) => fmtOrDash(row.startDate) },
+          { header: 'End', render: (row) => (row.endDate ? fmtOrDash(row.endDate) : 'Open-ended') },
+          {
+            header: 'Terms',
+            render: (row) =>
+              [
+                row.gratuityRate != null ? `gratuity ${row.gratuityRate}%` : null,
+                row.pensionScheme ? `pension: ${row.pensionScheme}` : null,
+                row.probationEndDate ? `probation to ${fmtOrDash(row.probationEndDate)}` : null,
+                row.noticePeriodDays != null ? `${row.noticePeriodDays} days' notice` : null,
+                row.reference,
+              ]
+                .filter(Boolean)
+                .join(' · ') || '—',
+          },
+        ]}
+      />
+      {gratuity.length > 0 && (
+        <div className="card space-y-2">
+          <div className="card-head">
+            <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Gratuity</h2>
+            <p className="text-xs text-slate-400">
+              {data?.statutoryRate
+                ? `Rate × last-drawn basic pay × months served. The statutory ${data.statutoryRate}% is paid tax-free; anything above it is taxed through PAYE. Paid automatically in the first pay run after the contract ends (or the person leaves).`
+                : 'Rate × last-drawn basic pay × months served, paid in the first pay run after the contract ends (or the person leaves), taxed as pay.'}
+            </p>
+          </div>
+          {gratuity.map((g) => (
+            <div key={g.contractId} className="flex flex-wrap items-baseline justify-between gap-3 border-t border-slate-100 pt-2 text-sm first:border-0 first:pt-0">
+              <div>
+                <p className="font-medium text-ink">
+                  {fmtOrDash(g.startDate)} – {g.endDate ? fmtOrDash(g.endDate) : '…'} · {g.rate}%
+                </p>
+                <p className="text-xs text-slate-500">
+                  {g.months} months to {fmtOrDash(g.servedTo)} × {money(g.basicMonthly)} basic
+                  {g.taxable > 0 ? ` · ${money(g.taxFree)} tax-free + ${money(g.taxable)} taxable` : ''}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-semibold text-ink">{money(g.settled ? g.settled.amount : g.amount)}</p>
+                <p className="text-xs text-slate-500">{g.settled ? `Paid via payroll (${fmtOrDash(g.settled.on)})` : 'Accrued so far'}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One row of the pay-period breakdown every native payroll ruleset reads
  *  from (Basic Pay Rate + typed Allowances) — the same shape for every
  *  country, no more country-specific styling of this section. Custom (not
@@ -372,8 +560,8 @@ function CompensationHistoryCard({
 
   return (
     <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Compensation</h2>
+      <div className="card-head flex items-center justify-between">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Compensation</h2>
         {canEdit && !formOpen && (
           <button className="btn-secondary flex items-center gap-1.5 whitespace-nowrap py-1" onClick={startAdding}>
             <IconPlus /> Update

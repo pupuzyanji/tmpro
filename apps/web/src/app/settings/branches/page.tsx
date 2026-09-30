@@ -129,7 +129,7 @@ export default function BranchesSettingsPage() {
 
       {adding && (
         <div className="card grid gap-3 sm:grid-cols-2">
-          <p className="text-sm font-semibold text-ink sm:col-span-2">{editingId ? 'Edit branch' : 'New branch'}</p>
+          <p className="card-head card-title text-sm font-semibold text-ink sm:col-span-2">{editingId ? 'Edit branch' : 'New branch'}</p>
           <div>
             <label className="label">Name</label>
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />

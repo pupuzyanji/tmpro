@@ -8,10 +8,12 @@
  * Theming: every color/shadow/font token below is a CSS custom property so
  * the whole app can be re-skinned by flipping `data-theme` on <html> — see
  * `app-shell.tsx` for the sidebar toggle that does it. `:root` is the
- * original tmPro brand look (unchanged); `[data-theme="midnight"]` is the
+ * original tmPro brand look ("Classic"); `[data-theme="midnight"]` is the
  * second option, styled after a reference fintech-dashboard screenshot the
  * user supplied (dark-navy sidebar, white canvas, blue accent, a rounder
- * geometric font). tailwind.config.ts wires these into the existing
+ * geometric font). Since v028.B Midnight is the default: layout.tsx renders
+ * <html data-theme="midnight"> and only a remembered "classic" choice
+ * removes it. tailwind.config.ts wires these into the existing
  * `ink` / `accent` / `chrome.*` / `sidebar-gradient` / `brand-gradient` /
  * `shadow-card` utilities already used across every page, so no component
  * markup had to change to support the second theme.
@@ -60,6 +62,80 @@ body {
 
 .card {
   @apply bg-white border border-slate-100 rounded-2xl p-5 shadow-card;
+}
+
+/* -------------------------------------------------------------------------
+ * v028.B — section accents.
+ * Every area of the app has a colour (`--section`), set on <main> by
+ * app-shell.tsx from the route (Leave cyan, Payroll orange, …) and
+ * overridable on any element with an `accent-*` class (the dashboard's
+ * panels use this). A titled card marks its header like this:
+ *
+ *   <div className="card">
+ *     <div className="card-head">                ← wrapper: title + subtitle/buttons
+ *       <h2 className="card-title">Title</h2>   ← the title text itself
+ *     </div>
+ *
+ * (a lone title can carry both classes). How it looks depends on the theme:
+ *   Classic  — a short coloured bar beside the title (proposal C).
+ *   Midnight — a softly tinted header band across the top of the card with
+ *              a coloured dot before the title (proposal D).
+ * `card-head` must be the card's first child and the card must keep the
+ * default `p-5` padding, because the band bleeds out to the card's edges.
+ * ------------------------------------------------------------------------- */
+:root {
+  --section: #2b3af5;
+}
+.accent-blue { --section: #2b3af5; }
+.accent-cyan { --section: #0ea5e9; }
+.accent-purple { --section: #8b2fd9; }
+.accent-magenta { --section: #d626c9; }
+.accent-orange { --section: #f97316; }
+.accent-green { --section: #10b981; }
+.accent-teal { --section: #0d9488; }
+.accent-indigo { --section: #6366f1; }
+.accent-slate { --section: #3461af; }
+
+/* `.card .card-title` (not just `.card-title`) so it beats utility-style
+   classes such as `.label` that also set `display`. */
+.card .card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.card-title::before {
+  content: '';
+  flex-shrink: 0;
+  width: 4px;
+  height: 1.05em;
+  border-radius: 4px;
+  background: var(--section);
+}
+.theme-midnight-only {
+  display: none;
+}
+
+[data-theme='midnight'] .card-head {
+  margin: -1.25rem -1.25rem 1rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: calc(1rem - 1px) calc(1rem - 1px) 0 0;
+  background: color-mix(in srgb, var(--section) 8%, white);
+  border-bottom: 1px solid color-mix(in srgb, var(--section) 18%, white);
+}
+/* The band carries its own spacing; cancel any space-y gap on what follows. */
+[data-theme='midnight'] .card > .card-head + *:not([hidden]) {
+  margin-top: 0 !important;
+}
+[data-theme='midnight'] .card-title::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+[data-theme='midnight'] .theme-midnight-only {
+  display: revert;
+}
+[data-theme='midnight'] .theme-classic-only {
+  display: none;
 }
 
 .btn {

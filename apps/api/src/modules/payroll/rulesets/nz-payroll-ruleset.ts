@@ -1,20 +1,29 @@
 import type { PayrollCalculationInput, PayrollCalculationResult, PayrollRuleset } from './payroll-ruleset.interface';
+import { asFraction, Band, earningsOf, progressive, ratesDate, round2, yearFraction } from './common';
 
 /**
- * Illustrative NZ PAYE annual brackets — a working example of the ruleset
- * shape, NOT verified current IRD rates. Confirm against ird.govt.nz before
- * any real payroll run; rates and thresholds change most tax years.
+ * New Zealand — v029.A.
  *
- * Like every native ruleset, gross pay for the period is the sum of the
- * employee's Basic Salary plus any Housing/Transport/Meal/Other allowance —
- * the Compensation section's Basic Pay Rate + typed Allowances, normalized
- * to this run's pay period by PayrollService before reaching here
- * (`components`). NZ's PAYE bands are annual, so that period gross is
- * annualised for the bracket lookup and the resulting tax pro-rated back
- * down to the period — this ruleset no longer reads a standalone
- * `annualSalary` field.
+ * PAYE (Income Tax Act 2007, rates from 31 July 2024), annual income:
+ *   0 – 15,600          10.5%
+ *   15,601 – 53,500     17.5%
+ *   53,501 – 78,100     30%
+ *   78,101 – 180,000    33%
+ *   above 180,000       39%
+ * Worked out on annualised period earnings (tax code M, no secondary
+ * employment) and brought back to the period. Student loan repayments and
+ * the independent earner tax credit are not applied.
+ *
+ * ACC earners' levy (incl. GST), by ACC year from 1 April:
+ *   2026/27: 1.75% on earnings up to $156,641 a year
+ *   2025/26: 1.67% on earnings up to $152,790 a year
+ *
+ * KiwiSaver: the employee's chosen rate (from the tax profile), else the
+ * default — 3.5% from 1 April 2026 (3% before). The employer contributes at
+ * least the same default rate; that is shown gross on the payslip (ESCT on
+ * it is not worked out here) and not deducted.
  */
-const NZ_PAYE_BRACKETS: Array<{ upTo: number; rate: number }> = [
+const NZ_PAYE_BRACKETS: Band[] = [
   { upTo: 15_600, rate: 0.105 },
   { upTo: 53_500, rate: 0.175 },
   { upTo: 78_100, rate: 0.3 },
@@ -22,57 +31,43 @@ const NZ_PAYE_BRACKETS: Array<{ upTo: number; rate: number }> = [
   { upTo: Infinity, rate: 0.39 },
 ];
 
-const ACC_EARNER_LEVY_RATE = 0.016; // illustrative flat rate; real calc has an annual liable-income cap
-const DEFAULT_KIWISAVER_RATE = 0.03;
-const DAYS_PER_YEAR = 365;
+const ACC_YEARS = [
+  { from: '2026-04-01', rate: 0.0175, maxEarnings: 156_641 },
+  { from: '2025-04-01', rate: 0.0167, maxEarnings: 152_790 },
+];
 
-function annualPaye(annualSalary: number): number {
-  let tax = 0;
-  let lower = 0;
-  for (const bracket of NZ_PAYE_BRACKETS) {
-    if (annualSalary <= lower) break;
-    const taxableInBracket = Math.min(annualSalary, bracket.upTo) - lower;
-    tax += taxableInBracket * bracket.rate;
-    lower = bracket.upTo;
-  }
-  return tax;
+function kiwiSaverDefault(date: string): number {
+  return date >= '2026-04-01' ? 0.035 : 0.03;
 }
 
 export const nzPayrollRuleset: PayrollRuleset = {
   countryCode: 'NZ',
   calculatePayPeriod(input: PayrollCalculationInput): PayrollCalculationResult {
-    const c = input.components;
-    const basicSalary = round2(c.basicSalary ?? 0);
-    const housingAllowance = round2(c.housingAllowance ?? 0);
-    const transportAllowance = round2(c.transportAllowance ?? 0);
-    const lunchAllowance = round2(c.lunchAllowance ?? 0);
-    const otherAllowance = round2(c.otherAllowance ?? 0);
-    const grossPay = round2(basicSalary + housingAllowance + transportAllowance + lunchAllowance + otherAllowance);
+    const { earnings, grossPay } = earningsOf(input);
+    const date = ratesDate(input);
+    const fraction = yearFraction(input);
 
-    const periodFraction = input.periodDays / DAYS_PER_YEAR;
-    // Annualise this period's actual gross (rather than reading a
-    // standalone annualSalary field) so the progressive brackets apply
-    // correctly, then pro-rate the resulting tax back down to the period.
-    const annualisedGross = periodFraction > 0 ? grossPay / periodFraction : grossPay;
-    const paye = round2(annualPaye(annualisedGross) * periodFraction);
-    const accLevy = round2(grossPay * ACC_EARNER_LEVY_RATE);
-    const kiwiSaver = round2(grossPay * (input.kiwiSaverRate ?? DEFAULT_KIWISAVER_RATE));
+    const paye = round2(progressive(NZ_PAYE_BRACKETS, grossPay / fraction) * fraction);
+
+    const acc = ACC_YEARS.find((y) => date >= y.from) ?? ACC_YEARS[ACC_YEARS.length - 1];
+    const accLevy = round2(Math.min(grossPay, acc.maxEarnings * fraction) * acc.rate);
+
+    const minimum = kiwiSaverDefault(date);
+    const kiwiSaver = round2(grossPay * asFraction(input.kiwiSaverRate, minimum));
+    const employerKiwiSaver = round2(grossPay * minimum);
+
     const deductions = round2(accLevy + kiwiSaver);
-    const netPay = round2(grossPay - paye - deductions);
-
     return {
       grossPay,
       tax: paye,
       deductions,
-      netPay,
+      netPay: round2(grossPay - paye - deductions),
       components: {
-        earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance },
+        currency: 'NZD',
+        earnings,
         statutory: { paye, accLevy, kiwiSaver },
+        employer: { employerKiwiSaver },
       },
     };
   },
 };
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}

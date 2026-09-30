@@ -416,3 +416,50 @@ export function IconHelp() {
     </Base>
   );
 }
+
+/** v029.B — People tile "Quick view". */
+export function IconEye() {
+  return (
+    <Base>
+      <path d="M1.8 10s3-5.6 8.2-5.6 8.2 5.6 8.2 5.6-3 5.6-8.2 5.6S1.8 10 1.8 10z" />
+      <circle cx="10" cy="10" r="2.5" />
+    </Base>
+  );
+}
+
+/** v029.B — tile / list view toggles. */
+export function IconList() {
+  return (
+    <Base>
+      <path d="M7 5.5h10M7 10h10M7 14.5h10" />
+      <circle cx="3.6" cy="5.5" r="0.6" fill="currentColor" />
+      <circle cx="3.6" cy="10" r="0.6" fill="currentColor" />
+      <circle cx="3.6" cy="14.5" r="0.6" fill="currentColor" />
+    </Base>
+  );
+}
+
+export function IconMail() {
+  return (
+    <Base>
+      <rect x="2.5" y="4.5" width="15" height="11" rx="2" />
+      <path d="m3 5.5 7 5.2 7-5.2" />
+    </Base>
+  );
+}
+
+export function IconPhone() {
+  return (
+    <Base>
+      <path d="M5.2 2.8h2.3l1.2 3.4-1.6 1.1a9.3 9.3 0 0 0 5.6 5.6l1.1-1.6 3.4 1.2v2.3a1.6 1.6 0 0 1-1.7 1.6A14.4 14.4 0 0 1 3.6 4.5a1.6 1.6 0 0 1 1.6-1.7z" />
+    </Base>
+  );
+}
+
+export function IconX() {
+  return (
+    <Base>
+      <path d="M5 5l10 10M15 5 5 15" />
+    </Base>
+  );
+}

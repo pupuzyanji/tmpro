@@ -20,6 +20,9 @@ interface ReportDef {
   description: string;
   endpoint: string;
   adminOnly?: boolean;
+  /** v028.A — for endpoints that return an object rather than a row list. */
+  rowsFrom?: (data: Row) => Row[];
+  noDateRange?: boolean;
   columns: Column<Row>[];
 }
 
@@ -33,6 +36,74 @@ const REPORTS: ReportDef[] = [
       { key: 'name', label: 'Staff', render: (r) => r.name },
       { key: 'taken', label: 'Days taken in range', render: (r) => r.daysTakenInRange },
       { key: 'balance', label: 'Current balance', render: (r) => r.currentBalance },
+    ],
+  },
+  {
+    key: 'leave-liability',
+    label: 'Leave liability (accrued leave value)',
+    description:
+      'Untaken annual leave today, valued at each person’s daily rate (monthly basic ÷ the divisor set in Settings → Leave → Processing). What the organisation would owe if everyone left today.',
+    endpoint: '/leave/admin/liability',
+    adminOnly: true,
+    noDateRange: true,
+    rowsFrom: (d) => [...d.rows, { name: 'Total', days: d.totalDays, dailyRate: null, value: d.totalValue, total: true }],
+    columns: [
+      { key: 'name', label: 'Staff', render: (r) => (r.total ? <b>{r.name}</b> : r.name) },
+      { key: 'dept', label: 'Department', render: (r) => r.department ?? '' },
+      { key: 'days', label: 'Days owed', render: (r) => (r.total ? <b>{r.days}</b> : r.days) },
+      { key: 'rate', label: 'Daily rate', render: (r) => (r.dailyRate == null ? '' : r.dailyRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) },
+      {
+        key: 'value',
+        label: 'Value',
+        render: (r) => {
+          const v = Number(r.value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return r.total ? <b>{v}</b> : v;
+        },
+      },
+    ],
+  },
+  {
+    key: 'gratuity-liability',
+    label: 'Gratuity liability (fixed-term contracts)',
+    description:
+      'Gratuity accrued so far on every running fixed-term contract of 12 months or longer: the contract’s rate × last-drawn basic pay × months served. In Zambia the statutory 25% is tax-free and anything above it is taxable. Gratuity that has fallen due is paid in the next pay run.',
+    endpoint: '/contracts/gratuity-liability',
+    adminOnly: true,
+    noDateRange: true,
+    rowsFrom: (d) => [...d.rows, { name: 'Total', accrued: d.total, total: true }],
+    columns: [
+      { key: 'name', label: 'Staff', render: (r) => (r.total ? <b>{r.name}</b> : r.name) },
+      { key: 'ends', label: 'Contract ends', render: (r) => (r.contractEnds ? fmt(r.contractEnds) : '') },
+      { key: 'rate', label: 'Rate', render: (r) => (r.rate != null ? `${r.rate}%` : '') },
+      { key: 'months', label: 'Months served', render: (r) => r.months ?? '' },
+      { key: 'basic', label: 'Basic / month', render: (r) => (r.basicMonthly != null ? Number(r.basicMonthly).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '') },
+      {
+        key: 'accrued',
+        label: 'Accrued',
+        render: (r) => {
+          const v = Number(r.accrued).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return r.total ? <b>{v}</b> : v;
+        },
+      },
+      { key: 'taxable', label: 'Of which taxable', render: (r) => (r.taxable != null ? Number(r.taxable).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '') },
+    ],
+  },
+  {
+    key: 'leave-overdue',
+    label: 'Overdue annual leave',
+    description:
+      'Annual leave not taken within the period the law allows after it falls due (Malawi: 6 months, Employment Act s.44), oldest first out. Flag only — nothing is forfeited or paid out; agree dates with each person or record a deferral.',
+    endpoint: '/leave/admin/overdue',
+    adminOnly: true,
+    noDateRange: true,
+    rowsFrom: (d) => d.rows,
+    columns: [
+      { key: 'name', label: 'Staff', render: (r) => r.name },
+      { key: 'dept', label: 'Department', render: (r) => r.department ?? '' },
+      { key: 'type', label: 'Leave type', render: (r) => r.leaveType },
+      { key: 'overdue', label: 'Days overdue', render: (r) => r.overdueDays },
+      { key: 'takeBy', label: 'Should have been taken by', render: (r) => fmt(r.takeBy) },
+      { key: 'balance', label: 'Current balance', render: (r) => r.balance },
     ],
   },
   {
@@ -120,8 +191,8 @@ export default function ReportsPage() {
       if (from) params.set('from', from);
       if (to) params.set('to', to);
       const qs = params.toString();
-      const data = await call<Row[]>(`${active.endpoint}${qs ? `?${qs}` : ''}`);
-      setRows(data);
+      const data = await call<Row>(`${active.endpoint}${!active.noDateRange && qs ? `?${qs}` : ''}`);
+      setRows(active.rowsFrom ? active.rowsFrom(data) : data);
       setRanAt(new Date().toLocaleTimeString());
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not run this report.');
@@ -180,8 +251,8 @@ export default function ReportsPage() {
 
       {rows && (
         <div className="card overflow-x-auto">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold text-ink">{active.label}</p>
+          <div className="card-head mb-3 flex items-center justify-between">
+            <p className="card-title text-sm font-semibold text-ink">{active.label}</p>
             {ranAt && <p className="text-xs text-slate-400">Run at {ranAt} · {rows.length} row{rows.length === 1 ? '' : 's'}</p>}
           </div>
           {rows.length === 0 ? (

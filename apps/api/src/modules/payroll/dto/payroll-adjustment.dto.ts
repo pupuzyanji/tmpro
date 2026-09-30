@@ -1,4 +1,4 @@
-import { ArrayMinSize, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 
 export class CreatePayrollAdjustmentDto {
   /** One or more employees to apply the same addition/deduction to — lets an
@@ -24,6 +24,12 @@ export class CreatePayrollAdjustmentDto {
   @IsInt()
   @Min(1)
   occurrences?: number;
+
+  /** v028.F — an addition that is part of taxable pay (added to gross before
+   *  tax) rather than paid on top of net. Ignored for deductions. */
+  @IsOptional()
+  @IsBoolean()
+  taxable?: boolean;
 }
 
 /** Edits a still-PENDING adjustment in place — every field optional so a
@@ -46,4 +52,10 @@ export class UpdatePayrollAdjustmentDto {
   @IsInt()
   @Min(1)
   occurrences?: number;
+
+  /** v028.F — an addition that is part of taxable pay (added to gross before
+   *  tax) rather than paid on top of net. Ignored for deductions. */
+  @IsOptional()
+  @IsBoolean()
+  taxable?: boolean;
 }

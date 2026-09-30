@@ -19,10 +19,17 @@ export interface PayComponents {
     transportAllowance: number;
     lunchAllowance: number;
     otherAllowance?: number;
+    /** v028.F — taxable payroll additions (bonus, leave pay, taxable gratuity). */
+    taxableAdditions?: number;
   };
   // Statutory line items vary by country ruleset (ZM: paye/napsa/nhi; NZ:
   // paye/accLevy/kiwiSaver) — rendered dynamically via STATUTORY_LABELS.
   statutory: Record<string, number>;
+  /** v029.A — contributions the employer pays on top of pay (pension,
+   *  KiwiSaver, super, UIF, SDL, NSSA). Shown, never deducted. */
+  employer?: Record<string, number>;
+  /** v029.A — the currency the country's ruleset works in (MWK, NZD …). */
+  currency?: string;
   // How much of the pay period this payslip actually earned — set by the
   // day-by-day proration engine in payroll.service.ts. `prorated` is false
   // for the common case (payableDays === periodTotalDays), so a normal
@@ -34,6 +41,8 @@ export interface AdjustmentSnapshot {
   label: string;
   type: 'ADDITION' | 'DEDUCTION';
   amount: number;
+  /** v028.F — a taxable addition, already included in gross pay. */
+  taxable?: boolean;
 }
 
 export interface Payslip {
@@ -89,6 +98,7 @@ export interface Adjustment {
   amount: number;
   occurrences: number;
   appliedCount: number;
+  taxable?: boolean;
   status: 'PENDING' | 'COMPLETED' | 'CANCELLED';
   createdAt: string;
 }
@@ -115,6 +125,9 @@ export const STATUTORY_LABELS: Record<string, string> = {
   pension: 'Pension Contribution',
   // ZA
   uif: 'UIF Contribution',
+  // AU
+  payg: 'PAYG Withholding',
+  medicareLevy: 'Medicare Levy',
   // TZ
   nssf: 'NSSF Contribution',
   // GB
@@ -122,6 +135,22 @@ export const STATUTORY_LABELS: Record<string, string> = {
   // FR
   socialContributions: 'Social Contributions',
 };
+
+export const EMPLOYER_LABELS: Record<string, string> = {
+  employerPension: 'Employer pension (10%)',
+  employerKiwiSaver: 'Employer KiwiSaver',
+  superGuarantee: 'Superannuation guarantee (12%)',
+  employerUif: 'Employer UIF (1%)',
+  sdl: 'Skills Development Levy (1%)',
+  employerNssa: 'Employer NSSA (4.5%)',
+};
+
+/** The currency to show a payslip in: the one its country ruleset worked
+ *  in, else the organisation's currency. */
+export function payslipCurrency(p: Payslip, branding: Branding | null): string {
+  const c = (p.components as Partial<PayComponents> | undefined)?.currency;
+  return c ?? branding?.currency ?? 'ZMW';
+}
 
 export function labelFor(map: Record<string, string>, key: string): string {
   return map[key] ?? key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
@@ -198,7 +227,7 @@ export function PayslipWithDownload({ payslip, branding }: { payslip: Payslip; b
  *  Tax ID/SSN/NHI ID for use in Regulatory Submissions. */
 export function PayslipCard({ payslip: p, branding }: { payslip: Payslip; branding: Branding | null }) {
   const reference = useMemo(() => payrollReference(branding?.name, p.periodEnd, p.employeeCode ?? p.id), [branding, p]);
-  const currency = branding?.currency ?? 'ZMW';
+  const currency = payslipCurrency(p, branding);
   const adjustments = p.adjustments ?? [];
 
   if (!hasComponents(p)) {
@@ -218,7 +247,7 @@ export function PayslipCard({ payslip: p, branding }: { payslip: Payslip; brandi
     );
   }
 
-  const { earnings, statutory } = p.components;
+  const { earnings, statutory, employer } = p.components;
 
   return (
     <div className="card space-y-4 text-sm">
@@ -284,6 +313,7 @@ export function PayslipCard({ payslip: p, branding }: { payslip: Payslip; brandi
         <Row label="Transport Allowance" value={earnings.transportAllowance} currency={currency} />
         <Row label="Meal/Lunch Allowance" value={earnings.lunchAllowance} currency={currency} />
         {!!earnings.otherAllowance && <Row label="Other Allowance" value={earnings.otherAllowance} currency={currency} />}
+        {!!earnings.taxableAdditions && <Row label="Taxable additions (see below)" value={earnings.taxableAdditions} currency={currency} />}
         <Row label="Gross / Taxable Pay" value={p.grossPay} currency={currency} bold />
       </div>
 
@@ -294,6 +324,15 @@ export function PayslipCard({ payslip: p, branding }: { payslip: Payslip; brandi
         ))}
         <Row label="Total Deductions" value={p.deductions + p.tax} currency={currency} bold />
       </div>
+
+      {employer && Object.values(employer).some((v) => v > 0) && (
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Paid by the employer (not deducted)</p>
+          {Object.entries(employer).map(([key, value]) => (
+            <Row key={key} label={labelFor(EMPLOYER_LABELS, key)} value={value} currency={currency} />
+          ))}
+        </div>
+      )}
 
       <AdjustmentsList adjustments={adjustments} currency={currency} />
 
@@ -349,7 +388,10 @@ export function AdjustmentsList({ adjustments, currency }: { adjustments: Adjust
       <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Adjustments this run</p>
       {adjustments.map((a, i) => (
         <div key={i} className="flex items-center justify-between border-b border-slate-50 py-1 text-slate-600 last:border-0">
-          <span>{a.label}</span>
+          <span>
+            {a.label}
+            {a.taxable && <span className="ml-1 text-xs text-slate-400">(taxable — included in gross above)</span>}
+          </span>
           <span className={a.type === 'ADDITION' ? 'text-emerald-600' : 'text-red-600'}>
             {a.type === 'ADDITION' ? '+' : '−'}
             {formatMoney(a.amount, currency)}

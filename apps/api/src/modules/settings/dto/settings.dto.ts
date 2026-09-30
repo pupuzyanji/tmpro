@@ -222,27 +222,3 @@ export class UpdateAnnouncementDto {
 
 // --- Leave (Settings → Leave: per-country-regime leave-type catalog) -------
 
-export class LeaveTypeRowDto {
-  @IsUUID()
-  id!: string;
-
-  @IsNumber()
-  @Min(0)
-  defaultAnnualDays!: number;
-
-  @IsIn(['DAILY', 'MONTHLY', 'ANNUALLY'])
-  accrualPeriod!: 'DAILY' | 'MONTHLY' | 'ANNUALLY';
-
-  @IsBoolean()
-  carryOverEnabled!: boolean;
-}
-
-export class BulkUpdateLeaveTypesDto {
-  @IsIn(['ZM', 'NZ', 'MW', 'ZA', 'OTHER'])
-  countryCode!: string;
-
-  @ValidateNested({ each: true })
-  @Type(() => LeaveTypeRowDto)
-  @ArrayMinSize(1)
-  rows!: LeaveTypeRowDto[];
-}

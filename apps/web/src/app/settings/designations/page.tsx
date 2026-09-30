@@ -112,7 +112,7 @@ export default function DesignationsSettingsPage() {
 
       {adding && (
         <div className="card grid gap-3 sm:grid-cols-2">
-          <p className="text-sm font-semibold text-ink sm:col-span-2">{editingId ? 'Edit designation' : 'New designation'}</p>
+          <p className="card-head card-title text-sm font-semibold text-ink sm:col-span-2">{editingId ? 'Edit designation' : 'New designation'}</p>
           <div>
             <label className="label">Title</label>
             <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />

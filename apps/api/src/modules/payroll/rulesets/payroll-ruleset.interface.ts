@@ -11,6 +11,10 @@
 export interface PayrollCalculationInput {
   kiwiSaverRate?: number | null;
   periodDays: number;
+  /** v029.A — the last day of the pay period (YYYY-MM-DD), so a ruleset can
+   *  pick the tax table in force for it (e.g. AU from 1 July, ZA from 1
+   *  March, NZ from 1 April). */
+  periodEnd?: string;
   /** The pay-period earnings breakdown every native ruleset reads from —
    *  `basicSalary`, `housingAllowance`, `transportAllowance`,
    *  `lunchAllowance`, `otherAllowance`. PayrollService builds this by

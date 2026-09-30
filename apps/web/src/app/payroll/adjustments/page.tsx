@@ -98,6 +98,7 @@ function AdjustmentsPanel({
   const [label, setLabel] = useState('');
   const [amount, setAmount] = useState('');
   const [occurrences, setOccurrences] = useState('1');
+  const [taxable, setTaxable] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,6 +109,7 @@ function AdjustmentsPanel({
     setLabel('');
     setAmount('');
     setOccurrences('1');
+    setTaxable(true);
     setError(null);
   }
 
@@ -118,6 +120,7 @@ function AdjustmentsPanel({
     setLabel(a.label);
     setAmount(String(a.amount));
     setOccurrences(String(a.occurrences));
+    setTaxable(!!a.taxable);
     setError(null);
   }
 
@@ -136,6 +139,7 @@ function AdjustmentsPanel({
             label,
             amount: parseFloat(amount),
             occurrences: parseInt(occurrences, 10) || 1,
+            taxable: type === 'ADDITION' && taxable,
           }),
         });
       } else {
@@ -147,6 +151,7 @@ function AdjustmentsPanel({
             label,
             amount: parseFloat(amount),
             occurrences: parseInt(occurrences, 10) || 1,
+            taxable: type === 'ADDITION' && taxable,
           }),
         });
       }
@@ -161,8 +166,8 @@ function AdjustmentsPanel({
 
   return (
     <div className="card space-y-4">
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Additions & deductions</h2>
+      <div className="card-head">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Additions & deductions</h2>
         <p className="text-xs text-slate-400">
           Schedule a one-off bonus or a deduction (e.g. an advance drawn) for one or more employees. It applies
           automatically the next time payroll runs for their country — over as many runs as you choose. Any
@@ -203,6 +208,15 @@ function AdjustmentsPanel({
           <label className="label">Apply over how many pay runs</label>
           <input type="number" min={1} className="input" value={occurrences} onChange={(e) => setOccurrences(e.target.value)} />
         </div>
+        {type === 'ADDITION' && (
+          <label className="flex items-start gap-2 text-sm text-slate-600 sm:col-span-2">
+            <input type="checkbox" className="mt-0.5" checked={taxable} onChange={(e) => setTaxable(e.target.checked)} />
+            <span>
+              Taxable — add it to gross pay so tax (and statutory contributions) are worked out on it, as for a bonus or leave pay.
+              Untick for amounts paid on top of net pay without tax, such as a reimbursement.
+            </span>
+          </label>
+        )}
         <div className="flex items-end gap-2 sm:col-span-2">
           <button className="btn-primary" disabled={saving}>
             {saving ? 'Saving…' : editingId ? 'Save changes' : 'Schedule'}
@@ -224,7 +238,7 @@ function AdjustmentsPanel({
               </p>
               <p className="text-xs text-slate-400">
                 {a.type === 'ADDITION' ? '+' : '−'}
-                {formatMoney(a.amount, currency)} per run · {a.appliedCount}/{a.occurrences} applied ·{' '}
+                {formatMoney(a.amount, currency)} per run{a.type === 'ADDITION' ? (a.taxable ? ' · taxable' : ' · not taxed') : ''} · {a.appliedCount}/{a.occurrences} applied ·{' '}
                 <span
                   className={
                     a.status === 'PENDING' ? 'text-amber-600' : a.status === 'COMPLETED' ? 'text-emerald-600' : 'text-slate-400'

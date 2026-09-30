@@ -5,7 +5,7 @@ import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { IconChevronRight, IconPencil, IconTrash } from '@/components/icons';
-import { type Branding, type PayRun, type Payslip, PayslipWithDownload, fmt } from './shared';
+import { type Branding, type PayRun, type Payslip, PayslipWithDownload, fmt, payslipCurrency } from './shared';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -213,15 +213,15 @@ export default function PayrollPage() {
         <div>
           <label className="label">Country</label>
           <select className="input" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
-            <option value="ZM">ZM — native (default)</option>
-            <option value="NZ">NZ — native</option>
-            <option value="ZW">ZW — native (Zimbabwe)</option>
-            <option value="MW">MW — native (Malawi)</option>
-            <option value="ZA">ZA — native (South Africa)</option>
-            <option value="TZ">TZ — native (Tanzania)</option>
-            <option value="GB">GB — native (England/UK)</option>
-            <option value="FR">FR — native (France)</option>
-            <option value="AU">AU — not yet built</option>
+            <option value="ZM">ZM — Zambia (default)</option>
+            <option value="MW">MW — Malawi</option>
+            <option value="NZ">NZ — New Zealand</option>
+            <option value="AU">AU — Australia</option>
+            <option value="ZA">ZA — South Africa</option>
+            <option value="ZW">ZW — Zimbabwe (USD)</option>
+            <option value="TZ">TZ — Tanzania (illustrative rates)</option>
+            <option value="GB">GB — UK (illustrative rates)</option>
+            <option value="FR">FR — France (illustrative rates)</option>
             <option value="US">US — partner-routed</option>
           </select>
         </div>
@@ -310,8 +310,8 @@ export default function PayrollPage() {
                               {p.employeeFirstName} {p.employeeLastName}
                             </td>
                             <td className="px-5 py-3 text-slate-600">{p.department ?? '—'}</td>
-                            <td className="px-5 py-3 text-slate-600">{formatMoney(p.grossPay, branding?.currency)}</td>
-                            <td className="px-5 py-3 font-medium text-ink">{formatMoney(p.netPay, branding?.currency)}</td>
+                            <td className="px-5 py-3 text-slate-600">{formatMoney(p.grossPay, payslipCurrency(p, branding))}</td>
+                            <td className="px-5 py-3 font-medium text-ink">{formatMoney(p.netPay, payslipCurrency(p, branding))}</td>
                             <td className="px-5 py-3 text-right text-slate-400">
                               <span
                                 className={`inline-block transition-transform ${expandedEmployeeId === p.employeeId ? 'rotate-90' : ''}`}

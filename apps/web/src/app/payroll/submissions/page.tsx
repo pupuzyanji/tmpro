@@ -271,7 +271,7 @@ function SuperannuationSection({
 
   return (
     <div className="card space-y-4">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Superannuation Returns:</h2>
+      <h2 className="card-head card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Superannuation Returns:</h2>
       <PeriodPicker runs={runs} year={year} month={month} onYear={setYear} onMonth={setMonth} onGenerate={generate} generating={generating} />
       {error && <p className="text-sm text-red-600">{error}</p>}
       <ResultTable headers={headers} rows={rows} />
@@ -339,7 +339,7 @@ function PayeSection({ runs, call }: { runs: PayRun[]; call: ReturnType<typeof u
 
   return (
     <div className="card space-y-4">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">PAYE Return</h2>
+      <h2 className="card-head card-title text-sm font-semibold uppercase tracking-wide text-slate-500">PAYE Return</h2>
       <PeriodPicker runs={runs} year={year} month={month} onYear={setYear} onMonth={setMonth} onGenerate={generate} generating={generating} />
       {error && <p className="text-sm text-red-600">{error}</p>}
       <ResultTable headers={headers} rows={rows} />
@@ -425,7 +425,7 @@ function HealthInsuranceSection({
 
   return (
     <div className="card space-y-4">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Health Insurance Return</h2>
+      <h2 className="card-head card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Health Insurance Return</h2>
       <PeriodPicker runs={runs} year={year} month={month} onYear={setYear} onMonth={setMonth} onGenerate={generate} generating={generating} />
       {error && <p className="text-sm text-red-600">{error}</p>}
       <ResultTable headers={headers} rows={rows} />

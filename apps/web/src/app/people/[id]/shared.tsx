@@ -33,8 +33,8 @@ export function SectionHeader({
   onEdit?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
+    <div className="card-head flex items-center justify-between">
+      <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
       {canEdit && !editing && onEdit && (
         <button className="btn-secondary py-1" onClick={onEdit}>
           Edit
@@ -187,8 +187,8 @@ export function AddableList<T extends { id: string }>({
 
   return (
     <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
+      <div className="card-head flex items-center justify-between">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
         {canEdit && !formOpen && (
           <button className="btn-secondary flex items-center gap-1.5 whitespace-nowrap py-1" onClick={() => setAdding(true)}>
             <IconPlus /> {addLabel}

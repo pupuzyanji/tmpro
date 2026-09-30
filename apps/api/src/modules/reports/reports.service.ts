@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, gte, lte } from 'drizzle-orm';
+import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { withTenant } from '../../db/client';
 import {
   employeeDocuments,
   employees,
   goals,
-  leaveBalances,
+  leaveLedger,
+  leaveTypes,
   leaveRequests,
   performanceReviewEntries,
 } from '../../db/schema';
@@ -61,12 +62,19 @@ export class ReportsService {
         ),
         with: { leaveType: true },
       });
-      const balances = await tx.select().from(leaveBalances).where(eq(leaveBalances.tenantId, tenantId));
+      // v028.A — balances come from the leave ledger (accruing types, e.g. annual leave).
+      const balanceRows = await tx
+        .select({ employeeId: leaveLedger.employeeId, total: sql<string>`sum(${leaveLedger.units})` })
+        .from(leaveLedger)
+        .innerJoin(leaveTypes, eq(leaveTypes.id, leaveLedger.leaveTypeId))
+        .where(and(eq(leaveLedger.tenantId, tenantId), eq(leaveTypes.kind, 'ACCRUING')))
+        .groupBy(leaveLedger.employeeId);
+      const balances = balanceRows.map((b) => ({ employeeId: b.employeeId, balanceDays: Number(b.total) }));
       return allEmployees
         .filter((e) => this.inScope(scope, e.id))
         .map((e) => {
           const taken = requests.filter((r) => r.employeeId === e.id).reduce((sum, r) => sum + r.days, 0);
-          const remaining = balances.filter((b) => b.employeeId === e.id).reduce((sum, b) => sum + b.balanceDays, 0);
+          const remaining = Math.round(balances.filter((b) => b.employeeId === e.id).reduce((sum, b) => sum + b.balanceDays, 0) * 100) / 100;
           return {
             employeeId: e.id,
             name: `${e.firstName} ${e.lastName}`,

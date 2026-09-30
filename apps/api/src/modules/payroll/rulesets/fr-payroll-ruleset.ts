@@ -48,7 +48,10 @@ export const frPayrollRuleset: PayrollRuleset = {
     const transportAllowance = round2(c.transportAllowance ?? 0);
     const lunchAllowance = round2(c.lunchAllowance ?? 0);
     const otherAllowance = round2(c.otherAllowance ?? 0);
-    const grossPay = round2(basicSalary + housingAllowance + transportAllowance + lunchAllowance + otherAllowance);
+    // v028.F — taxable payroll additions (a bonus, leave pay, gratuity above
+    // the tax-free part) are part of gross, so they're taxed with the rest.
+    const taxableAdditions = round2(c.taxableAdditions ?? 0);
+    const grossPay = round2(basicSalary + housingAllowance + transportAllowance + lunchAllowance + otherAllowance + taxableAdditions);
 
     const paye = round2(monthlyPayeAtSource(grossPay));
     const socialContributions = round2(grossPay * SOCIAL_CONTRIBUTIONS_RATE);
@@ -61,7 +64,7 @@ export const frPayrollRuleset: PayrollRuleset = {
       deductions,
       netPay,
       components: {
-        earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance },
+        earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance, taxableAdditions },
         statutory: { paye, socialContributions },
       },
     };

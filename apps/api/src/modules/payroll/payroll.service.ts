@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, lte } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { withTenant } from '../../db/client';
 import type * as schema from '../../db/schema';
@@ -7,14 +7,15 @@ import {
   employeeCompensationHistory,
   employeeStatusHistory,
   employees,
+  leaveRequestDays,
   leaveRequests,
-  leaveTypes,
   payRuns,
   payrollAdjustments,
   payslips,
   taxProfiles,
 } from '../../db/schema';
 import { PAYROLL_RULESETS } from './rulesets/registry';
+import { settleDueGratuities } from '../contracts/gratuity';
 import type { RunPayrollDto, UpdatePayRunDto } from './dto/run-payroll.dto';
 import type { CreatePayrollAdjustmentDto, UpdatePayrollAdjustmentDto } from './dto/payroll-adjustment.dto';
 
@@ -127,16 +128,39 @@ export class PayrollService {
         .from(employees)
         .where(and(eq(employees.tenantId, tenantId), eq(employees.countryCode, dto.countryCode)));
 
+      // v028.F — gratuity on contracts that ended (or whose employee left)
+      // by the end of this period becomes payroll additions first, so this
+      // run pays it.
+      await settleDueGratuities(tx, tenantId, periodEnd.toISOString().slice(0, 10), dto.countryCode);
+
       const created = [];
       for (const employee of candidates) {
         const { components, payableDays } = await buildProratedComponents(tx, tenantId, employee, periodStart, periodEnd, periodDays);
 
-        // Nothing earned anything this period — never ACTIVE with
-        // in-effect Compensation during it (still ONBOARDING, already
-        // OFFBOARDING/ALUMNI before the period started, or simply no
-        // Compensation on file yet). Skip rather than create a
-        // zero-value payslip, matching the pre-existing behavior.
-        if (payableDays === 0) continue;
+        // Ad-hoc additions/deductions waiting for this employee (an advance
+        // being clawed back, a bonus, leave pay or gratuity on leaving …).
+        const pendingAdjustments = await tx
+          .select()
+          .from(payrollAdjustments)
+          .where(
+            and(
+              eq(payrollAdjustments.tenantId, tenantId),
+              eq(payrollAdjustments.employeeId, employee.id),
+              eq(payrollAdjustments.status, 'PENDING'),
+            ),
+          );
+
+        // Nothing earned this period — never ACTIVE with in-effect
+        // Compensation during it — and nothing waiting to be paid: skip
+        // rather than create a zero-value payslip. (Someone who has left but
+        // is still owed leave pay or gratuity gets a final payslip.)
+        if (payableDays === 0 && pendingAdjustments.length === 0) continue;
+
+        // v028.F — taxable additions join gross pay before the ruleset
+        // works out tax; everything else is applied to net pay below.
+        components.taxableAdditions = pendingAdjustments
+          .filter((a) => a.type === 'ADDITION' && a.taxable)
+          .reduce((s, a) => s + a.amount, 0);
 
         const [taxProfile] = await tx
           .select()
@@ -147,6 +171,7 @@ export class PayrollService {
         const result = ruleset.calculatePayPeriod({
           kiwiSaverRate: taxProfile?.kiwiSaverRate,
           periodDays,
+          periodEnd: periodEnd.toISOString().slice(0, 10),
           components,
         });
 
@@ -159,27 +184,16 @@ export class PayrollService {
           proration: { payableDays, periodTotalDays: periodDays, prorated: payableDays < periodDays },
         };
 
-        // Apply this employee's pending ad-hoc additions/deductions (an
-        // advance being clawed back, a one-off bonus, etc.) directly onto
-        // net pay, and record a snapshot on the payslip so it keeps showing
-        // them even after the adjustment itself completes.
-        const pendingAdjustments = await tx
-          .select()
-          .from(payrollAdjustments)
-          .where(
-            and(
-              eq(payrollAdjustments.tenantId, tenantId),
-              eq(payrollAdjustments.employeeId, employee.id),
-              eq(payrollAdjustments.status, 'PENDING'),
-            ),
-          );
-
-        const adjustmentSnapshot: Array<{ label: string; type: 'ADDITION' | 'DEDUCTION'; amount: number }> = [];
+        // Apply the non-taxable additions and all deductions directly onto
+        // net pay (taxable additions are already inside gross), and record a
+        // snapshot on the payslip so it keeps showing them even after the
+        // adjustment itself completes.
+        const adjustmentSnapshot: Array<{ label: string; type: 'ADDITION' | 'DEDUCTION'; amount: number; taxable?: boolean }> = [];
         let netPay = result.netPay;
         for (const adj of pendingAdjustments) {
-          const delta = adj.type === 'ADDITION' ? adj.amount : -adj.amount;
-          netPay += delta;
-          adjustmentSnapshot.push({ label: adj.label, type: adj.type, amount: adj.amount });
+          const inGross = adj.type === 'ADDITION' && adj.taxable;
+          if (!inGross) netPay += adj.type === 'ADDITION' ? adj.amount : -adj.amount;
+          adjustmentSnapshot.push({ label: adj.label, type: adj.type, amount: adj.amount, ...(inGross ? { taxable: true } : {}) });
 
           const appliedCount = adj.appliedCount + 1;
           await tx
@@ -199,7 +213,7 @@ export class PayrollService {
             employeeId: employee.id,
             ...result,
             components: componentsWithProration,
-            netPay,
+            netPay: Math.round(netPay * 100) / 100,
             adjustments: adjustmentSnapshot,
           })
           .returning();
@@ -336,6 +350,7 @@ export class PayrollService {
             label: dto.label,
             amount: dto.amount,
             occurrences: dto.occurrences ?? 1,
+            taxable: dto.type === 'ADDITION' ? !!dto.taxable : false,
             createdById: createdById ?? undefined,
           })
           .returning();
@@ -396,6 +411,7 @@ export class PayrollService {
           type: dto.type ?? existing.type,
           label: dto.label ?? existing.label,
           amount: dto.amount ?? existing.amount,
+          taxable: (dto.type ?? existing.type) === 'ADDITION' ? (dto.taxable ?? existing.taxable) : false,
           occurrences,
           status: occurrences <= existing.appliedCount ? 'COMPLETED' : 'PENDING',
         })
@@ -637,26 +653,28 @@ async function buildProratedComponents(
     )
     .orderBy(employeeStatusHistory.effectiveDate)) as StatusRow[];
 
-  // Approved leave requests whose Leave Type is marked unpaid — expanded
-  // below into the specific calendar days they cover, intersected with
-  // this period. Uses the request's literal start/end date span rather
-  // than its stored `days` figure, since this scaffold's Leave module has
-  // no working-day/holiday calendar to reconcile the two against.
-  const unpaidLeaveRows = await tx
-    .select({ startDate: leaveRequests.startDate, endDate: leaveRequests.endDate })
-    .from(leaveRequests)
-    .innerJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+  // v028.A — approved leave days with their pay factor (1 full, 0.5 half,
+  // 0 unpaid), written by the leave engine per counted day: unpaid leave,
+  // the half-pay stretch of a long sick episode, maternity without the
+  // service for full pay. A day not in this map is paid normally. Where two
+  // approved requests somehow cover the same day, the lower factor wins.
+  const leaveDayRows = await tx
+    .select({ day: leaveRequestDays.day, payFactor: leaveRequestDays.payFactor })
+    .from(leaveRequestDays)
+    .innerJoin(leaveRequests, eq(leaveRequestDays.requestId, leaveRequests.id))
     .where(
       and(
-        eq(leaveRequests.tenantId, tenantId),
-        eq(leaveRequests.employeeId, employee.id),
+        eq(leaveRequestDays.tenantId, tenantId),
+        eq(leaveRequestDays.employeeId, employee.id),
         eq(leaveRequests.status, 'APPROVED'),
-        eq(leaveTypes.isPaid, false),
+        lte(leaveRequestDays.day, dateKey(periodEnd)),
+        gte(leaveRequestDays.day, dateKey(periodStart)),
       ),
     );
-  const unpaidDayKeys = new Set<string>();
-  for (const row of unpaidLeaveRows) {
-    for (const d of eachDay(row.startDate, row.endDate)) unpaidDayKeys.add(dateKey(d));
+  const leavePayFactor = new Map<string, number>();
+  for (const row of leaveDayRows) {
+    const f = Number(row.payFactor);
+    if (f < 1) leavePayFactor.set(row.day, Math.min(f, leavePayFactor.get(row.day) ?? 1));
   }
 
   const resolveStatus = makeAsOfResolver(statusRows);
@@ -678,18 +696,19 @@ async function buildProratedComponents(
     const comp = resolveComp(day);
     if (!comp) continue;
 
-    if (unpaidDayKeys.has(dateKey(day))) continue;
+    const factor = leavePayFactor.get(dateKey(day)) ?? 1;
+    if (factor <= 0) continue;
 
     payableDays++;
     const hoursPerWeek = comp.hoursPerWeek ?? STANDARD_HOURS_PER_WEEK;
     const fteFraction = hoursPerWeek / STANDARD_HOURS_PER_WEEK;
 
-    components.basicSalary += dailyBasicRate(comp.payRate, comp.payType, fteFraction, periodTotalDays, hoursPerWeek);
+    components.basicSalary += factor * dailyBasicRate(comp.payRate, comp.payType, fteFraction, periodTotalDays, hoursPerWeek);
 
     const allowances = (comp.allowances as Array<{ type: string; amount: number }> | null) ?? [];
     for (const a of allowances) {
       const key = ALLOWANCE_COMPONENT_KEY[a.type];
-      if (key) components[key as keyof typeof components] += ((a.amount || 0) * fteFraction) / periodTotalDays;
+      if (key) components[key as keyof typeof components] += (factor * (a.amount || 0) * fteFraction) / periodTotalDays;
     }
   }
 

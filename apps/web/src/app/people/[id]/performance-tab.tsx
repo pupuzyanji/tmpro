@@ -233,8 +233,8 @@ function GoalsCard({
 
   return (
     <div className="card space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Performance goals</h2>
+      <div className="card-head flex items-center justify-between">
+        <h2 className="card-title text-sm font-semibold uppercase tracking-wide text-slate-500">Performance goals</h2>
         {canEdit && !adding && (
           <button className="btn-secondary whitespace-nowrap py-1" onClick={() => setAdding(true)}>
             + Add goal

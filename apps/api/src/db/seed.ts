@@ -1,12 +1,12 @@
 import 'dotenv/config';
 import * as bcrypt from 'bcryptjs';
+import { and, eq } from 'drizzle-orm';
 import { db, pool, withTenant } from './client';
 import {
   tenants,
   users,
   employees,
   leaveTypes,
-  leaveBalances,
   leaveRequests,
   organizationSettings,
   branches,
@@ -21,6 +21,7 @@ import {
   platformAdmins,
 } from './schema';
 import { ALL_MODULE_KEYS } from '../common/modules/module-catalog';
+import { ensureTenantLeave } from '../modules/leave/engine/provision';
 
 const DEMO_PASSWORD = 'Passw0rd!';
 const PLATFORM_ADMIN_EMAIL = 'owner@tmpro.app';
@@ -205,51 +206,18 @@ async function main() {
       },
     ]).onConflictDoNothing();
 
-    // --- Leave types & balances ---------------------------------------------
-    // The full Zambia (ZM) catalog — bupe and kunda are both seeded as ZM
-    // employees, so this is what their Leave tab and the pending request
-    // below actually read. Settings → Leave (Admin) is where these are
-    // configured day-to-day now; this is just the same catalog with the
-    // statutory-baseline starting figures already filled in, so the demo
-    // tenant works out of the box. Public Holidays is deliberately not a
-    // row here — it's a calendar concept, not a balance-tracked leave type.
-    // `leaveBalances` rows below are just a starting point too: every read
-    // of `/leave/my-balances` recomputes them fresh from each type's
-    // accrual settings (leave.service.ts's `syncLeaveBalances`), so these
-    // numbers self-correct the first time anyone actually opens the page.
-    const zmLeaveTypeSeed: Array<{
-      name: string;
-      isPaid: boolean;
-      defaultAnnualDays: number;
-      accrualPeriod: 'DAILY' | 'MONTHLY' | 'ANNUALLY';
-      carryOverEnabled: boolean;
-    }> = [
-      { name: 'Annual Leave', isPaid: true, defaultAnnualDays: 2, accrualPeriod: 'MONTHLY', carryOverEnabled: true },
-      { name: 'Sick Leave – Long-term Contract', isPaid: true, defaultAnnualDays: 90, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Sick Leave – Short-term Contract', isPaid: true, defaultAnnualDays: 52, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Maternity Leave', isPaid: true, defaultAnnualDays: 98, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Paternity Leave', isPaid: true, defaultAnnualDays: 5, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Compassionate/Special Leave', isPaid: true, defaultAnnualDays: 7, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Study Leave', isPaid: true, defaultAnnualDays: 10, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      // Unpaid Leave — the leave type payroll's proration engine reads
-      // (leaveTypes.isPaid = false) to deduct specific approved-leave days
-      // from an otherwise-ACTIVE employee's pay.
-      { name: 'Unpaid Leave', isPaid: false, defaultAnnualDays: 0, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-      { name: 'Other Leave', isPaid: true, defaultAnnualDays: 0, accrualPeriod: 'ANNUALLY', carryOverEnabled: false },
-    ];
-    const zmLeaveTypes = await tx
-      .insert(leaveTypes)
-      .values(zmLeaveTypeSeed.map((r) => ({ tenantId: tenantRow.id, countryCode: 'ZM', ...r })))
-      .returning();
-    const annual = zmLeaveTypes.find((r) => r.name === 'Annual Leave')!;
-    const sick = zmLeaveTypes.find((r) => r.name === 'Sick Leave – Short-term Contract')!;
-
-    for (const emp of [bupe, kunda]) {
-      await tx.insert(leaveBalances).values([
-        { tenantId: tenantRow.id, employeeId: emp.id, leaveTypeId: annual.id, balanceDays: 2 },
-        { tenantId: tenantRow.id, employeeId: emp.id, leaveTypeId: sick.id, balanceDays: 52 },
-      ]);
-    }
+    // --- Leave (v028.A) ------------------------------------------------------
+    // Leave types and policies come from the country rule template (Zambia:
+    // Employment Code Act 2019) via the leave engine's provisioning, so the
+    // demo tenant gets exactly what a real tenant gets. Balances are derived
+    // from the ledger, which the engine fills in (accruals from each
+    // person's service start) the first time their leave is read.
+    await ensureTenantLeave(tx, tenantRow.id);
+    const [annual] = await tx
+      .select()
+      .from(leaveTypes)
+      .where(and(eq(leaveTypes.tenantId, tenantRow.id), eq(leaveTypes.countryCode, 'ZM'), eq(leaveTypes.code, 'ANNUAL')))
+      .limit(1);
 
     // --- A pending leave request, ready for Bupe to approve ---------------
     await tx.insert(leaveRequests).values({
@@ -261,6 +229,7 @@ async function main() {
       days: 5,
       reason: 'Family trip',
       status: 'PENDING',
+      approvalSteps: ['SUPERVISOR'],
     });
 
     // --- Training: one published course (with a quiz) and one draft ------

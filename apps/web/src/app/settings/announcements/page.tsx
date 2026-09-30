@@ -136,7 +136,7 @@ export default function AnnouncementsSettingsPage() {
 
       {adding && (
         <div className="card space-y-3">
-          <p className="text-sm font-semibold text-ink">{editingId ? 'Edit announcement' : 'New announcement'}</p>
+          <p className="card-head card-title text-sm font-semibold text-ink">{editingId ? 'Edit announcement' : 'New announcement'}</p>
           <div>
             <label className="label">Title</label>
             <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
