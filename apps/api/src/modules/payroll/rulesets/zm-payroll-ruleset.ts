@@ -30,6 +30,10 @@ const NAPSA_RATE = 0.05;
 // (contribution of K1,342.00 on gross earnings that exceeded the ceiling).
 const NAPSA_CEILING = 26_840;
 const NHI_RATE = 0.01; // National Health Insurance — 1% of Basic Pay only
+// v030.A — employer side, shown on the payslip and in pay run totals (not
+// deducted): NAPSA matched 5% (same ceiling), NHI matched 1% of basic, and
+// the Skills Development Levy at 0.5% of gross emoluments.
+const SDL_RATE = 0.005;
 
 function monthlyPaye(grossPay: number): number {
   let tax = 0;
@@ -69,8 +73,10 @@ export const zmPayrollRuleset: PayrollRuleset = {
       deductions,
       netPay,
       components: {
+        currency: 'ZMW',
         earnings: { basicSalary, housingAllowance, transportAllowance, lunchAllowance, otherAllowance, taxableAdditions },
         statutory: { paye, napsa, nhi },
+        employer: { employerNapsa: napsa, employerNhi: nhi, sdl: round2(grossPay * SDL_RATE) },
       },
     };
   },

@@ -10,6 +10,7 @@ import { IconUsers } from '@/components/icons';
 import { accentClass } from '@/lib/section-accent';
 import type { LeaveOverview, LeaveTypeOverview } from '@/lib/leave';
 import { formatMoney } from '@/lib/format';
+import { COUNTRY_CURRENCY as RUN_CURRENCY, runMonth } from '@/app/payroll/shared';
 
 interface Employee {
   id: string;
@@ -89,6 +90,16 @@ interface ExpiringContracts {
   months: number;
   rows: ExpiringContract[];
 }
+/** v030.A — GET /payroll/approvals/mine. */
+interface RunApproval {
+  id: string;
+  countryCode: string;
+  periodEnd: string;
+  payDate: string | null;
+  level: number;
+  required: number;
+  totals: { employees: number; net: number; cost: number };
+}
 interface SupervisorSummary {
   directReportsCount: number;
   pendingRequestsCount: number;
@@ -139,6 +150,7 @@ export default function DashboardPage() {
   const [adminSummary, setAdminSummary] = useState<AdminSummary | null>(null);
   const [supervisorSummary, setSupervisorSummary] = useState<SupervisorSummary | null>(null);
   const [expiring, setExpiring] = useState<ExpiringContracts | null>(null);
+  const [runApprovals, setRunApprovals] = useState<RunApproval[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const role = session?.user.role;
@@ -164,6 +176,9 @@ export default function DashboardPage() {
         if (role === 'EMPLOYEE') {
           setAnnouncements(await call<Announcement[]>('/announcements/me'));
         }
+        // v030.A — pay runs waiting for this person's approval (any role can
+        // be an approver). Best-effort: Payroll may be switched off.
+        call<RunApproval[]>('/payroll/approvals/mine').then(setRunApprovals).catch(() => setRunApprovals([]));
         if (role === 'ADMIN' || role === 'HR') {
           setAdminSummary(await call<AdminSummary>('/dashboard/admin-summary'));
           // Best-effort: the dashboard still loads if contracts can't be read.
@@ -225,6 +240,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {runApprovals.length > 0 && <RunApprovalsPanel runs={runApprovals} />}
       {(role === 'ADMIN' || role === 'HR') && adminSummary && <AdminSummaryPanel summary={adminSummary} />}
       {(role === 'ADMIN' || role === 'HR') && expiring && <ContractsEndingPanel data={expiring} />}
       {role === 'SUPERVISOR' && supervisorSummary && <SupervisorSummaryPanel summary={supervisorSummary} />}
@@ -573,6 +589,34 @@ function ContractsEndingPanel({ data }: { data: ExpiringContracts }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** v030.A — pay runs waiting for the signed-in person's approval. */
+function RunApprovalsPanel({ runs }: { runs: RunApproval[] }) {
+  return (
+    <div className="card accent-orange">
+      <p className="card-head card-title text-sm font-semibold text-ink">Pay runs waiting for your approval</p>
+      <ul className="divide-y divide-slate-100">
+        {runs.map((r) => (
+          <li key={r.id}>
+            <Link href={`/payroll/runs/${r.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm hover:opacity-80">
+              <span>
+                <span className="font-medium text-ink">
+                  {r.countryCode} · {runMonth(r.periodEnd)}
+                </span>
+                <span className="block text-xs text-slate-500">
+                  {r.totals.employees} employees · net {formatMoney(r.totals.net, RUN_CURRENCY[r.countryCode])}
+                  {r.required > 1 ? ` · your approval is ${r.level} of ${r.required}` : ''}
+                  {r.payDate ? ` · pay date ${new Date(r.payDate).toLocaleDateString('en-NZ', { day: '2-digit', month: 'short' })}` : ''}
+                </span>
+              </span>
+              <span className="btn-primary !py-1.5 text-xs">Review</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

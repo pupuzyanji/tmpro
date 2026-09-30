@@ -1,4 +1,4 @@
-import { IsIn, IsISO8601, IsOptional, IsString, Length } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsISO8601, IsNumber, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 export class RunPayrollDto {
   @IsISO8601()
@@ -10,12 +10,15 @@ export class RunPayrollDto {
   @IsString()
   @Length(2, 2)
   countryCode!: string;
+
+  /** v030.A — the day staff are paid; defaults to the period end. */
+  @IsOptional()
+  @IsISO8601()
+  payDate?: string;
 }
 
-/** Admin edit-in-place for an already-executed pay run — the period dates
- *  or status (e.g. correcting DRAFT/APPROVED/PAID after the fact). Does not
- *  recompute payslips; use Delete + re-run Payroll if the figures themselves
- *  need to change. */
+/** v030.A — edits a DRAFT run's period or pay date (status now changes
+ *  only through the run's stages: submit, approve, send back, reopen, paid). */
 export class UpdatePayRunDto {
   @IsOptional()
   @IsISO8601()
@@ -26,6 +29,35 @@ export class UpdatePayRunDto {
   periodEnd?: string;
 
   @IsOptional()
-  @IsIn(['DRAFT', 'APPROVED', 'PAID'])
-  status?: 'DRAFT' | 'APPROVED' | 'PAID';
+  @IsISO8601()
+  payDate?: string;
+}
+
+/** v030.A — submit / approve / send back / reopen. */
+export class PayRunActionDto {
+  @IsOptional()
+  @IsString()
+  comment?: string;
+
+  /** Submit only: the preparer accepts the open "check" items. */
+  @IsOptional()
+  @IsBoolean()
+  acknowledgeChecks?: boolean;
+}
+
+/** v030.A — Settings → Payroll → Approvals, per country. */
+export class ApprovalSettingsDto {
+  @IsOptional() @IsInt() @Min(1) @Max(2) approvalsRequired?: number;
+  @IsOptional() @IsNumber() secondWhenCostOver?: number | null;
+  @IsOptional() @IsNumber() secondWhenIncreasePct?: number | null;
+  @IsOptional() @IsBoolean() secondWhenOverride?: boolean;
+  @IsOptional() @IsBoolean() preparerCannotApprove?: boolean;
+  @IsOptional() @IsBoolean() sendBackNeedsComment?: boolean;
+  @IsOptional() @IsBoolean() notifyOnSubmit?: boolean;
+  @IsOptional() @IsBoolean() notifyOnDecision?: boolean;
+  @IsOptional() @IsArray() approvers?: Array<{ userId: string; level: '1' | '2' | 'ANY' }>;
+}
+
+export class CanApproveDto {
+  @IsBoolean() canApprovePayroll!: boolean;
 }

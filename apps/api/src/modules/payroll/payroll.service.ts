@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, gte, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte } from 'drizzle-orm';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { withTenant } from '../../db/client';
 import type * as schema from '../../db/schema';
@@ -9,13 +9,17 @@ import {
   employees,
   leaveRequestDays,
   leaveRequests,
+  payRunEvents,
   payRuns,
   payrollAdjustments,
   payslips,
   taxProfiles,
+  users,
 } from '../../db/schema';
+import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PAYROLL_RULESETS } from './rulesets/registry';
 import { settleDueGratuities } from '../contracts/gratuity';
+import { loadRun, recordEvent, rollbackPayslips, totalsOf, type Tx } from './run-helpers';
 import type { RunPayrollDto, UpdatePayRunDto } from './dto/run-payroll.dto';
 import type { CreatePayrollAdjustmentDto, UpdatePayrollAdjustmentDto } from './dto/payroll-adjustment.dto';
 
@@ -55,8 +59,18 @@ const PAYSLIP_SELECT = {
 
 @Injectable()
 export class PayrollService {
+  /** Every run, newest period first, with its headline totals (v030.A). */
   listRuns(tenantId: string) {
-    return withTenant(tenantId, (tx) => tx.select().from(payRuns).where(eq(payRuns.tenantId, tenantId)));
+    return withTenant(tenantId, async (tx) => {
+      const runs = await tx.select().from(payRuns).where(eq(payRuns.tenantId, tenantId)).orderBy(desc(payRuns.periodEnd), desc(payRuns.createdAt));
+      const slips = await tx
+        .select({ payRunId: payslips.payRunId, employeeId: payslips.employeeId, grossPay: payslips.grossPay, tax: payslips.tax, deductions: payslips.deductions, netPay: payslips.netPay, components: payslips.components, adjustments: payslips.adjustments })
+        .from(payslips)
+        .where(eq(payslips.tenantId, tenantId));
+      const byRun = new Map<string, typeof slips>();
+      for (const sl of slips) byRun.set(sl.payRunId, [...(byRun.get(sl.payRunId) ?? []), sl]);
+      return runs.map((r) => ({ ...r, totals: totalsOf(byRun.get(r.id) ?? []) }));
+    });
   }
 
   listPayslips(tenantId: string, payRunId: string) {
@@ -77,7 +91,14 @@ export class PayrollService {
         .from(payslips)
         .innerJoin(employees, eq(payslips.employeeId, employees.id))
         .innerJoin(payRuns, eq(payslips.payRunId, payRuns.id))
-        .where(and(eq(payslips.tenantId, tenantId), eq(payslips.employeeId, employeeId)))
+        .where(
+          and(
+            eq(payslips.tenantId, tenantId),
+            eq(payslips.employeeId, employeeId),
+            // v030.A — staff only see payslips once the run is approved.
+            inArray(payRuns.status, ['APPROVED', 'PAID']),
+          ),
+        )
         .orderBy(desc(payRuns.periodEnd)),
     );
   }
@@ -91,229 +112,211 @@ export class PayrollService {
    * that's the signal to route it through a partner integration instead
    * (Sheet 07), not to guess at its tax law.
    */
-  async runPayroll(tenantId: string, approvedById: string | null, dto: RunPayrollDto) {
-    const ruleset = PAYROLL_RULESETS[dto.countryCode];
-    if (!ruleset) {
+  async runPayroll(tenantId: string, user: AuthenticatedUser, dto: RunPayrollDto) {
+    if (!PAYROLL_RULESETS[dto.countryCode]) {
       throw new BadRequestException(
         `No native payroll ruleset for ${dto.countryCode} yet. Per the framework doc, route this country through a payroll partner integration instead of building tax rules ad hoc.`,
       );
     }
-
     const periodStart = new Date(dto.periodStart);
     const periodEnd = new Date(dto.periodEnd);
-    // Inclusive calendar-day count — "01 Sept" to "30 Sept" is 30 days, not
-    // 29. (The old exclusive date-diff here was the root of the v013.C
-    // MONTHLY bug; day-by-day proration below needs it to be exact, not
-    // just "close enough for a whole month", since a short period like
-    // February or a 3-day final week depends on it directly.)
-    const periodDays = daysInclusive(periodStart, periodEnd);
+    if (periodEnd < periodStart) throw new BadRequestException('The period end is before its start.');
 
     return withTenant(tenantId, async (tx) => {
+      // v030.A — a new run starts as a DRAFT: calculated, then reviewed,
+      // submitted and approved before it's locked (pay-run-workflow.ts).
       const [payRun] = await tx
         .insert(payRuns)
-        .values({ tenantId, periodStart, periodEnd, countryCode: dto.countryCode, status: 'DRAFT' })
+        .values({
+          tenantId,
+          periodStart,
+          periodEnd,
+          countryCode: dto.countryCode,
+          status: 'DRAFT',
+          payDate: (dto.payDate ?? dto.periodEnd).slice(0, 10),
+          preparedByUserId: user.userId,
+          calculatedAt: new Date(),
+        })
         .returning();
-
-      // Every employee in this country is a *candidate* for this run —
-      // employees.status is no longer a single whole-period gate. Someone
-      // who was ACTIVE for only part of the period (a new hire, someone
-      // who left or was terminated mid-period) still needs considering so
-      // their partial pay computes correctly; buildProratedComponents
-      // below resolves status day-by-day and simply returns 0 payable days
-      // for anyone who was never ACTIVE-with-in-effect-Compensation at any
-      // point in the period, which is what actually excludes them (see the
-      // `if (payableDays === 0) continue` below) — not this query.
-      const candidates = await tx
-        .select()
-        .from(employees)
-        .where(and(eq(employees.tenantId, tenantId), eq(employees.countryCode, dto.countryCode)));
-
-      // v028.F — gratuity on contracts that ended (or whose employee left)
-      // by the end of this period becomes payroll additions first, so this
-      // run pays it.
-      await settleDueGratuities(tx, tenantId, periodEnd.toISOString().slice(0, 10), dto.countryCode);
-
-      const created = [];
-      for (const employee of candidates) {
-        const { components, payableDays } = await buildProratedComponents(tx, tenantId, employee, periodStart, periodEnd, periodDays);
-
-        // Ad-hoc additions/deductions waiting for this employee (an advance
-        // being clawed back, a bonus, leave pay or gratuity on leaving …).
-        const pendingAdjustments = await tx
-          .select()
-          .from(payrollAdjustments)
-          .where(
-            and(
-              eq(payrollAdjustments.tenantId, tenantId),
-              eq(payrollAdjustments.employeeId, employee.id),
-              eq(payrollAdjustments.status, 'PENDING'),
-            ),
-          );
-
-        // Nothing earned this period — never ACTIVE with in-effect
-        // Compensation during it — and nothing waiting to be paid: skip
-        // rather than create a zero-value payslip. (Someone who has left but
-        // is still owed leave pay or gratuity gets a final payslip.)
-        if (payableDays === 0 && pendingAdjustments.length === 0) continue;
-
-        // v028.F — taxable additions join gross pay before the ruleset
-        // works out tax; everything else is applied to net pay below.
-        components.taxableAdditions = pendingAdjustments
-          .filter((a) => a.type === 'ADDITION' && a.taxable)
-          .reduce((s, a) => s + a.amount, 0);
-
-        const [taxProfile] = await tx
-          .select()
-          .from(taxProfiles)
-          .where(and(eq(taxProfiles.tenantId, tenantId), eq(taxProfiles.employeeId, employee.id)))
-          .limit(1);
-
-        const result = ruleset.calculatePayPeriod({
-          kiwiSaverRate: taxProfile?.kiwiSaverRate,
-          periodDays,
-          periodEnd: periodEnd.toISOString().slice(0, 10),
-          components,
-        });
-
-        // Record how much of the period was actually paid, so the payslip
-        // can be transparent about a proration instead of just showing a
-        // smaller number with no explanation (see PayslipCard's proration
-        // note in apps/web).
-        const componentsWithProration = {
-          ...(result.components ?? {}),
-          proration: { payableDays, periodTotalDays: periodDays, prorated: payableDays < periodDays },
-        };
-
-        // Apply the non-taxable additions and all deductions directly onto
-        // net pay (taxable additions are already inside gross), and record a
-        // snapshot on the payslip so it keeps showing them even after the
-        // adjustment itself completes.
-        const adjustmentSnapshot: Array<{ label: string; type: 'ADDITION' | 'DEDUCTION'; amount: number; taxable?: boolean }> = [];
-        let netPay = result.netPay;
-        for (const adj of pendingAdjustments) {
-          const inGross = adj.type === 'ADDITION' && adj.taxable;
-          if (!inGross) netPay += adj.type === 'ADDITION' ? adj.amount : -adj.amount;
-          adjustmentSnapshot.push({ label: adj.label, type: adj.type, amount: adj.amount, ...(inGross ? { taxable: true } : {}) });
-
-          const appliedCount = adj.appliedCount + 1;
-          await tx
-            .update(payrollAdjustments)
-            .set({
-              appliedCount,
-              status: appliedCount >= adj.occurrences ? 'COMPLETED' : 'PENDING',
-            })
-            .where(eq(payrollAdjustments.id, adj.id));
-        }
-
-        const [payslip] = await tx
-          .insert(payslips)
-          .values({
-            tenantId,
-            payRunId: payRun.id,
-            employeeId: employee.id,
-            ...result,
-            components: componentsWithProration,
-            netPay: Math.round(netPay * 100) / 100,
-            adjustments: adjustmentSnapshot,
-          })
-          .returning();
-        created.push(payslip);
-      }
-
-      const [approvedRun] = await tx
-        .update(payRuns)
-        .set({ status: 'APPROVED', approvedById })
-        .where(eq(payRuns.id, payRun.id))
-        .returning();
-
-      return { payRun: approvedRun, payslips: created };
+      const created = await this.calculate(tx, tenantId, payRun);
+      await recordEvent(tx, tenantId, payRun.id, user, 'CREATED', { data: { payslips: created.length } });
+      return { payRun, payslips: created };
     });
   }
 
-  /** Admin edit-in-place for an already-executed pay run's period dates or
-   *  status. Does not recompute payslip figures — delete and re-run Payroll
-   *  when the numbers themselves need to change. */
+  /** v030.A — recalculates a DRAFT run from scratch: undoes its payslips
+   *  (and the additions/deductions they used) and works everything out
+   *  again from the current records. */
+  async recalculate(tenantId: string, user: AuthenticatedUser, runId: string) {
+    return withTenant(tenantId, async (tx) => {
+      const run = await loadRun(tx, tenantId, runId);
+      if (run.status !== 'DRAFT') throw new BadRequestException('Only a draft pay run can be recalculated. Reopen it first.');
+      await rollbackPayslips(tx, tenantId, run.id);
+      const created = await this.calculate(tx, tenantId, run);
+      const [updated] = await tx
+        .update(payRuns)
+        .set({ preparedByUserId: user.userId, calculatedAt: new Date() })
+        .where(eq(payRuns.id, run.id))
+        .returning();
+      await recordEvent(tx, tenantId, run.id, user, 'RECALCULATED', { data: { payslips: created.length } });
+      return { payRun: updated, payslips: created };
+    });
+  }
+
+  /**
+   * Works out every payslip for `run`: each employee in the run's country
+   * is prorated day by day against what was in effect on each calendar day
+   * of the period (see `buildProratedComponents` below), then taxed by that
+   * country's PayrollRuleset. A country with no native ruleset throws
+   * rather than silently producing wrong numbers.
+   */
+  private async calculate(tx: Tx, tenantId: string, run: typeof payRuns.$inferSelect) {
+    const ruleset = PAYROLL_RULESETS[run.countryCode];
+    if (!ruleset) throw new BadRequestException(`No native payroll ruleset for ${run.countryCode}.`);
+    const periodStart = new Date(run.periodStart);
+    const periodEnd = new Date(run.periodEnd);
+    // Inclusive calendar-day count — "01 Sept" to "30 Sept" is 30 days.
+    const periodDays = daysInclusive(periodStart, periodEnd);
+
+    // Every employee in this country is a *candidate* for this run —
+    // employees.status is no longer a single whole-period gate. Someone
+    // who was ACTIVE for only part of the period (a new hire, someone
+    // who left or was terminated mid-period) still needs considering so
+    // their partial pay computes correctly; buildProratedComponents
+    // below resolves status day-by-day and simply returns 0 payable days
+    // for anyone who was never ACTIVE-with-in-effect-Compensation at any
+    // point in the period, which is what actually excludes them (see the
+    // `if (payableDays === 0) continue` below) — not this query.
+    const candidates = await tx
+      .select()
+      .from(employees)
+      .where(and(eq(employees.tenantId, tenantId), eq(employees.countryCode, run.countryCode)));
+
+    // v028.F — gratuity on contracts that ended (or whose employee left)
+    // by the end of this period becomes payroll additions first, so this
+    // run pays it.
+    await settleDueGratuities(tx, tenantId, periodEnd.toISOString().slice(0, 10), run.countryCode);
+
+    const created = [];
+    for (const employee of candidates) {
+      const { components, payableDays } = await buildProratedComponents(tx, tenantId, employee, periodStart, periodEnd, periodDays);
+
+      // Ad-hoc additions/deductions waiting for this employee (an advance
+      // being clawed back, a bonus, leave pay or gratuity on leaving …).
+      const pendingAdjustments = await tx
+        .select()
+        .from(payrollAdjustments)
+        .where(
+          and(
+            eq(payrollAdjustments.tenantId, tenantId),
+            eq(payrollAdjustments.employeeId, employee.id),
+            eq(payrollAdjustments.status, 'PENDING'),
+          ),
+        );
+
+      // Nothing earned this period — never ACTIVE with in-effect
+      // Compensation during it — and nothing waiting to be paid: skip
+      // rather than create a zero-value payslip. (Someone who has left but
+      // is still owed leave pay or gratuity gets a final payslip.)
+      if (payableDays === 0 && pendingAdjustments.length === 0) continue;
+
+      // v028.F — taxable additions join gross pay before the ruleset
+      // works out tax; everything else is applied to net pay below.
+      components.taxableAdditions = pendingAdjustments
+        .filter((a) => a.type === 'ADDITION' && a.taxable)
+        .reduce((s, a) => s + a.amount, 0);
+
+      const [taxProfile] = await tx
+        .select()
+        .from(taxProfiles)
+        .where(and(eq(taxProfiles.tenantId, tenantId), eq(taxProfiles.employeeId, employee.id)))
+        .limit(1);
+
+      const result = ruleset.calculatePayPeriod({
+        kiwiSaverRate: taxProfile?.kiwiSaverRate,
+        periodDays,
+        periodEnd: periodEnd.toISOString().slice(0, 10),
+        components,
+      });
+
+      // Record how much of the period was actually paid, so the payslip
+      // can be transparent about a proration instead of just showing a
+      // smaller number with no explanation (see PayslipCard's proration
+      // note in apps/web).
+      const componentsWithProration = {
+        ...(result.components ?? {}),
+        proration: { payableDays, periodTotalDays: periodDays, prorated: payableDays < periodDays },
+      };
+
+      // Apply the non-taxable additions and all deductions directly onto
+      // net pay (taxable additions are already inside gross), and record a
+      // snapshot on the payslip so it keeps showing them even after the
+      // adjustment itself completes.
+      const adjustmentSnapshot: Array<{ adjustmentId: string; label: string; type: 'ADDITION' | 'DEDUCTION'; amount: number; taxable?: boolean }> = [];
+      let netPay = result.netPay;
+      for (const adj of pendingAdjustments) {
+        const inGross = adj.type === 'ADDITION' && adj.taxable;
+        if (!inGross) netPay += adj.type === 'ADDITION' ? adj.amount : -adj.amount;
+        adjustmentSnapshot.push({ adjustmentId: adj.id, label: adj.label, type: adj.type, amount: adj.amount, ...(inGross ? { taxable: true } : {}) });
+
+        const appliedCount = adj.appliedCount + 1;
+        await tx
+          .update(payrollAdjustments)
+          .set({
+            appliedCount,
+            status: appliedCount >= adj.occurrences ? 'COMPLETED' : 'PENDING',
+          })
+          .where(eq(payrollAdjustments.id, adj.id));
+      }
+
+      const [payslip] = await tx
+        .insert(payslips)
+        .values({
+          tenantId,
+          payRunId: run.id,
+          employeeId: employee.id,
+          ...result,
+          components: componentsWithProration,
+          netPay: Math.round(netPay * 100) / 100,
+          adjustments: adjustmentSnapshot,
+        })
+        .returning();
+      created.push(payslip);
+    }
+
+    return created;
+  }
+
+  /** Edits a DRAFT run's period or pay date. Changing the period doesn't
+   *  recompute the payslips — recalculate afterwards. */
   async updateRun(tenantId: string, id: string, dto: UpdatePayRunDto) {
-    const [row] = await withTenant(tenantId, (tx) =>
-      tx
+    return withTenant(tenantId, async (tx) => {
+      const run = await loadRun(tx, tenantId, id);
+      if (run.status !== 'DRAFT') throw new BadRequestException('Only a draft pay run can be edited. Reopen it first.');
+      const [row] = await tx
         .update(payRuns)
         .set({
           ...(dto.periodStart !== undefined ? { periodStart: new Date(dto.periodStart) } : {}),
           ...(dto.periodEnd !== undefined ? { periodEnd: new Date(dto.periodEnd) } : {}),
-          ...(dto.status !== undefined ? { status: dto.status } : {}),
+          ...(dto.payDate !== undefined ? { payDate: dto.payDate.slice(0, 10) } : {}),
         })
-        .where(and(eq(payRuns.tenantId, tenantId), eq(payRuns.id, id)))
-        .returning(),
-    );
-    if (!row) throw new NotFoundException('Pay run not found.');
-    return row;
-  }
-
-  /** Deletes an executed pay run and its payslips. Best-effort rolls back
-   *  any pending/completed adjustment this run's payslips applied — matched
-   *  by employeeId + label + type + amount against each payslip's
-   *  `adjustments` snapshot, since no direct adjustment-id link is stored on
-   *  the payslip itself. Not airtight if an employee has multiple
-   *  adjustments that share the same label/type/amount, but keeps
-   *  appliedCount/status from silently drifting in the common case. */
-  async deleteRun(tenantId: string, id: string) {
-    return withTenant(tenantId, async (tx) => {
-      const [run] = await tx
-        .select()
-        .from(payRuns)
-        .where(and(eq(payRuns.tenantId, tenantId), eq(payRuns.id, id)))
-        .limit(1);
-      if (!run) throw new NotFoundException('Pay run not found.');
-
-      const runPayslips = await tx
-        .select()
-        .from(payslips)
-        .where(and(eq(payslips.tenantId, tenantId), eq(payslips.payRunId, id)));
-
-      for (const slip of runPayslips) {
-        const snapshot =
-          (slip.adjustments as Array<{ label: string; type: 'ADDITION' | 'DEDUCTION'; amount: number }> | null) ?? [];
-        for (const entry of snapshot) {
-          const [match] = await tx
-            .select()
-            .from(payrollAdjustments)
-            .where(
-              and(
-                eq(payrollAdjustments.tenantId, tenantId),
-                eq(payrollAdjustments.employeeId, slip.employeeId),
-                eq(payrollAdjustments.label, entry.label),
-                eq(payrollAdjustments.type, entry.type),
-                eq(payrollAdjustments.amount, entry.amount),
-              ),
-            )
-            .orderBy(desc(payrollAdjustments.createdAt))
-            .limit(1);
-          if (match && match.appliedCount > 0) {
-            const appliedCount = match.appliedCount - 1;
-            await tx
-              .update(payrollAdjustments)
-              .set({ appliedCount, status: appliedCount < match.occurrences ? 'PENDING' : match.status })
-              .where(eq(payrollAdjustments.id, match.id));
-          }
-        }
-      }
-
-      await tx.delete(payslips).where(and(eq(payslips.tenantId, tenantId), eq(payslips.payRunId, id)));
-      await tx.delete(payRuns).where(and(eq(payRuns.tenantId, tenantId), eq(payRuns.id, id)));
-      return { id };
+        .where(eq(payRuns.id, id))
+        .returning();
+      return row;
     });
   }
 
-  async markPaid(tenantId: string, payRunId: string) {
-    const [row] = await withTenant(tenantId, (tx) =>
-      tx
-        .update(payRuns)
-        .set({ status: 'PAID' })
-        .where(and(eq(payRuns.tenantId, tenantId), eq(payRuns.id, payRunId)))
-        .returning(),
-    );
-    if (!row) throw new NotFoundException('Pay run not found.');
-    return row;
+  /** Deletes a DRAFT pay run and its payslips, putting back the additions
+   *  and deductions its payslips used. An approved run must be reopened
+   *  first. */
+  async deleteRun(tenantId: string, id: string) {
+    return withTenant(tenantId, async (tx) => {
+      const run = await loadRun(tx, tenantId, id);
+      if (run.status !== 'DRAFT') throw new BadRequestException('Only a draft pay run can be deleted. Reopen it first.');
+      await rollbackPayslips(tx, tenantId, id);
+      await tx.delete(payRuns).where(and(eq(payRuns.tenantId, tenantId), eq(payRuns.id, id)));
+      return { id };
+    });
   }
 
   // --- Ad-hoc additions/deductions ----------------------------------------

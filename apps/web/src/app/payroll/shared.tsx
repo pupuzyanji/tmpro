@@ -4,13 +4,58 @@ import { useMemo, useRef, useState } from 'react';
 import { formatMoney } from '@/lib/format';
 import { IconPrinter } from '@/components/icons';
 
+export interface RunTotals {
+  employees: number;
+  gross: number;
+  tax: number;
+  statutoryDeductions: number;
+  otherDeductions: number;
+  employeeDeductions: number;
+  nonTaxableAdditions: number;
+  net: number;
+  employer: number;
+  cost: number;
+}
+
 export interface PayRun {
   id: string;
   periodStart: string;
   periodEnd: string;
   countryCode: string;
   status: string;
+  /** v030.A */
+  payDate?: string | null;
+  totals?: RunTotals;
+  approvalsRequired?: number | null;
 }
+
+/** v030.A — how each pay run stage is labelled and coloured. */
+export const RUN_STATUS: Record<string, { label: string; cls: string }> = {
+  DRAFT: { label: 'Draft', cls: 'bg-amber-50 text-amber-700' },
+  SUBMITTED: { label: 'Awaiting approval', cls: 'bg-orange-50 text-orange-700' },
+  APPROVED: { label: 'Approved', cls: 'bg-emerald-50 text-emerald-700' },
+  PAID: { label: 'Paid', cls: 'bg-sky-50 text-sky-700' },
+};
+
+/** "September 2026" for a run, from its period end. */
+export function runMonth(periodEnd: string) {
+  return new Date(periodEnd).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** Default currency of each payroll country. */
+export const COUNTRY_CURRENCY: Record<string, string> = { ZM: 'ZMW', MW: 'MWK', NZ: 'NZD', AU: 'AUD', ZA: 'ZAR', ZW: 'USD', TZ: 'TZS', GB: 'GBP', FR: 'EUR' };
+
+export const PAYROLL_COUNTRIES: Array<{ code: string; label: string }> = [
+  { code: 'ZM', label: 'Zambia' },
+  { code: 'MW', label: 'Malawi' },
+  { code: 'NZ', label: 'New Zealand' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'ZA', label: 'South Africa' },
+  { code: 'ZW', label: 'Zimbabwe (USD)' },
+  { code: 'TZ', label: 'Tanzania (illustrative rates)' },
+  { code: 'GB', label: 'UK (illustrative rates)' },
+  { code: 'FR', label: 'France (illustrative rates)' },
+];
 
 export interface PayComponents {
   earnings: {
@@ -141,8 +186,10 @@ export const EMPLOYER_LABELS: Record<string, string> = {
   employerKiwiSaver: 'Employer KiwiSaver',
   superGuarantee: 'Superannuation guarantee (12%)',
   employerUif: 'Employer UIF (1%)',
-  sdl: 'Skills Development Levy (1%)',
+  sdl: 'Skills Development Levy',
   employerNssa: 'Employer NSSA (4.5%)',
+  employerNapsa: 'Employer NAPSA (5%)',
+  employerNhi: 'Employer NHI (1% of basic)',
 };
 
 /** The currency to show a payslip in: the one its country ruleset worked

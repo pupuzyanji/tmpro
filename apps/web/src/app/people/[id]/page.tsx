@@ -267,6 +267,22 @@ function PermissionTab({
     }
   }
 
+  // v030.A — "Can approve payroll" (Admin only), saved straight away.
+  const [savingApprover, setSavingApprover] = useState(false);
+  async function toggleApprover(value: boolean) {
+    if (!account) return;
+    setSavingApprover(true);
+    setError(null);
+    try {
+      await call(`/payroll/approvers/employee/${employeeId}`, { method: 'PATCH', body: JSON.stringify({ canApprovePayroll: value }) });
+      onSaved({ ...account, canApprovePayroll: value });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not change payroll approval.');
+    } finally {
+      setSavingApprover(false);
+    }
+  }
+
   async function resetPassword() {
     setResettingPassword(true);
     setError(null);
@@ -346,6 +362,26 @@ function PermissionTab({
         </div>
       ) : (
         <Field label="Role" value={account?.role} />
+      )}
+      {account && (
+        <div className="rounded-xl border border-slate-100 px-3.5 py-3">
+          <label className="flex items-start gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={!!account.canApprovePayroll}
+              disabled={!viewerIsAdmin || savingApprover}
+              onChange={(e) => toggleApprover(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium text-ink">Can approve payroll</span>
+              <span className="block text-xs text-slate-500">
+                Lets this person be named as a pay run approver in Settings → Payroll, whatever their role.
+                {!viewerIsAdmin && ' Only an Admin can change this.'}
+              </span>
+            </span>
+          </label>
+        </div>
       )}
       {!account && <p className="text-xs text-slate-400">This person doesn&apos;t have a login account yet.</p>}
       {account?.accessEnded && (

@@ -14,6 +14,7 @@ import {
   IconMegaphone,
   IconSitemap,
   IconDollar,
+  IconShield,
 } from '@/components/icons';
 
 // v019.A (follow-up): the HR role sees Settings too, but not the
@@ -28,6 +29,8 @@ const TABS = [
   { href: '/settings/employees', label: 'Employees', icon: <IconUsers /> },
   { href: '/settings/designations', label: 'Designations', icon: <IconTag />, adminOnly: true },
   { href: '/settings/leave', label: 'Leave', icon: <IconCalendar /> },
+  // v030.A — pay run approvers and rules (saving is Admin-only).
+  { href: '/settings/payroll', label: 'Payroll', icon: <IconShield /> },
   { href: '/settings/training', label: 'Training', icon: <IconGraduationCap /> },
   { href: '/settings/announcements', label: 'Announcements', icon: <IconMegaphone /> },
   { href: '/settings/org-chart', label: 'Org Chart', icon: <IconSitemap /> },

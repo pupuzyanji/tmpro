@@ -1,11 +1,13 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useApi } from '@/lib/use-api';
 import { ApiError } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
-import { IconChevronRight, IconPencil, IconTrash } from '@/components/icons';
-import { type Branding, type PayRun, type Payslip, PayslipWithDownload, fmt, payslipCurrency } from './shared';
+import { IconTrash } from '@/components/icons';
+import { type Branding, type PayRun, type Payslip, COUNTRY_CURRENCY, PAYROLL_COUNTRIES, PayslipWithDownload, RUN_STATUS, fmt, runMonth } from './shared';
 
 const MONTHS = [
   { value: 1, label: 'January' },
@@ -46,24 +48,20 @@ function usePayslipPeriodOptions(payslips: Payslip[]) {
 
 export default function PayrollPage() {
   const { session, ready, call } = useApi();
+  const router = useRouter();
   const [runs, setRuns] = useState<PayRun[]>([]);
   const [myPayslips, setMyPayslips] = useState<Payslip[]>([]);
   const [viewYear, setViewYear] = useState<number | ''>('');
   const [viewMonth, setViewMonth] = useState<number | ''>('');
   const [viewedPayslip, setViewedPayslip] = useState<Payslip | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [runPayslips, setRunPayslips] = useState<Payslip[]>([]);
-  const [expandedEmployeeId, setExpandedEmployeeId] = useState<string | null>(null);
   const [branding, setBranding] = useState<Branding | null>(null);
   const [periodStart, setPeriodStart] = useState('');
   const [periodEnd, setPeriodEnd] = useState('');
+  const [payDate, setPayDate] = useState('');
   const [countryCode, setCountryCode] = useState('ZM');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const [editingRunId, setEditingRunId] = useState<string | null>(null);
-  const [editStart, setEditStart] = useState('');
-  const [editEnd, setEditEnd] = useState('');
-  const [editStatus, setEditStatus] = useState('DRAFT');
 
   const isAdmin = session?.user.role === 'ADMIN' || session?.user.role === 'HR';
 
@@ -95,34 +93,20 @@ export default function PayrollPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
+  /** v030.A — calculating creates a DRAFT run and opens it for review. */
   async function runPayroll(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setRunning(true);
     try {
-      await call('/payroll/runs', { method: 'POST', body: JSON.stringify({ periodStart, periodEnd, countryCode }) });
-      setPeriodStart('');
-      setPeriodEnd('');
-      refresh();
+      const res = await call<{ payRun: PayRun }>('/payroll/runs', {
+        method: 'POST',
+        body: JSON.stringify({ periodStart, periodEnd, countryCode, ...(payDate ? { payDate } : {}) }),
+      });
+      router.push(`/payroll/runs/${res.payRun.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Payroll run failed.');
-    } finally {
       setRunning(false);
-    }
-  }
-
-  async function selectRun(runId: string) {
-    if (selectedRunId === runId) {
-      setSelectedRunId(null);
-      setExpandedEmployeeId(null);
-      return;
-    }
-    setSelectedRunId(runId);
-    setExpandedEmployeeId(null);
-    try {
-      setRunPayslips(await call<Payslip[]>(`/payroll/runs/${runId}/payslips`));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not load payslips for this run.');
     }
   }
 
@@ -137,35 +121,10 @@ export default function PayrollPage() {
     setViewedPayslip(match ?? null);
   }
 
-  function startEditRun(r: PayRun) {
-    setEditingRunId(r.id);
-    setEditStart(r.periodStart.slice(0, 10));
-    setEditEnd(r.periodEnd.slice(0, 10));
-    setEditStatus(r.status);
-  }
-
-  async function saveRunEdit() {
-    if (!editingRunId) return;
-    try {
-      await call(`/payroll/runs/${editingRunId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ periodStart: editStart, periodEnd: editEnd, status: editStatus }),
-      });
-      setEditingRunId(null);
-      await refresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not save that pay run.');
-    }
-  }
-
   async function deleteRun(id: string) {
-    if (!window.confirm('Delete this pay run and all its payslips? This cannot be undone.')) return;
+    if (!window.confirm('Delete this draft pay run and its payslips? Any additions or deductions it used are put back.')) return;
     try {
       await call(`/payroll/runs/${id}`, { method: 'DELETE' });
-      if (selectedRunId === id) {
-        setSelectedRunId(null);
-        setRunPayslips([]);
-      }
       await refresh();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not delete that pay run.');
@@ -197,152 +156,122 @@ export default function PayrollPage() {
     );
   }
 
+  const counts = runs.reduce<Record<string, number>>((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {});
+  const shown = statusFilter === 'ALL' ? runs : runs.filter((r) => r.status === statusFilter);
+
   return (
     <div className="space-y-8">
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
-      <form onSubmit={runPayroll} className="card grid gap-3 sm:grid-cols-4">
-        <div>
-          <label className="label">Period start</label>
-          <input type="date" className="input" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} required />
+      <form onSubmit={runPayroll} className="card space-y-4">
+        <div className="card-head">
+          <h2 className="card-title text-sm font-semibold text-ink">Start a pay run</h2>
+          <p className="text-xs text-slate-500">tmPro calculates a draft for you to review, then submit for approval.</p>
         </div>
-        <div>
-          <label className="label">Period end</label>
-          <input type="date" className="input" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} required />
-        </div>
-        <div>
-          <label className="label">Country</label>
-          <select className="input" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
-            <option value="ZM">ZM — Zambia (default)</option>
-            <option value="MW">MW — Malawi</option>
-            <option value="NZ">NZ — New Zealand</option>
-            <option value="AU">AU — Australia</option>
-            <option value="ZA">ZA — South Africa</option>
-            <option value="ZW">ZW — Zimbabwe (USD)</option>
-            <option value="TZ">TZ — Tanzania (illustrative rates)</option>
-            <option value="GB">GB — UK (illustrative rates)</option>
-            <option value="FR">FR — France (illustrative rates)</option>
-            <option value="US">US — partner-routed</option>
-          </select>
-        </div>
-        <div className="flex items-end">
-          <button className="btn-primary w-full" disabled={running}>
-            {running ? 'Running…' : 'Run payroll'}
-          </button>
+        <div className="grid gap-3 sm:grid-cols-5">
+          <div>
+            <label className="label" htmlFor="pr-start">Period start</label>
+            <input id="pr-start" type="date" className="input" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} required />
+          </div>
+          <div>
+            <label className="label" htmlFor="pr-end">Period end</label>
+            <input id="pr-end" type="date" className="input" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} required />
+          </div>
+          <div>
+            <label className="label" htmlFor="pr-pay">Pay date</label>
+            <input id="pr-pay" type="date" className="input" value={payDate} onChange={(e) => setPayDate(e.target.value)} placeholder="Period end" />
+          </div>
+          <div>
+            <label className="label" htmlFor="pr-country">Country</label>
+            <select id="pr-country" className="input" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
+              {PAYROLL_COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} — {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-end">
+            <button className="btn-primary w-full" disabled={running}>
+              {running ? 'Calculating…' : 'Calculate draft'}
+            </button>
+          </div>
         </div>
       </form>
 
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pay runs</h2>
-        <p className="text-xs text-slate-400">Select a run to see a summary line for every employee on it. Runs can be edited or deleted.</p>
-        <div className="space-y-2">
-          {runs.map((r) => (
-            <div key={r.id} className="space-y-2">
-              {editingRunId === r.id ? (
-                <div className="card grid gap-3 sm:grid-cols-4">
-                  <div>
-                    <label className="label">Period start</label>
-                    <input type="date" className="input" value={editStart} onChange={(e) => setEditStart(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label">Period end</label>
-                    <input type="date" className="input" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label">Status</label>
-                    <select className="input" value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
-                      <option value="DRAFT">DRAFT</option>
-                      <option value="APPROVED">APPROVED</option>
-                      <option value="PAID">PAID</option>
-                    </select>
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <button className="btn-primary" onClick={saveRunEdit}>
-                      Save
-                    </button>
-                    <button className="btn-secondary" onClick={() => setEditingRunId(null)}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className={`card flex w-full items-center justify-between text-left hover:bg-slate-50/60 ${
-                    selectedRunId === r.id ? 'ring-2 ring-brand-blue/40' : ''
-                  }`}
-                >
-                  <button className="flex-1 text-left" onClick={() => selectRun(r.id)}>
-                    <p className="text-sm text-ink">
-                      {r.countryCode} · {fmt(r.periodStart)} – {fmt(r.periodEnd)}
-                    </p>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className="badge bg-slate-100 text-slate-600">{r.status}</span>
-                    <button className="text-slate-400 hover:text-ink" onClick={() => startEditRun(r)} title="Edit">
-                      <IconPencil />
-                    </button>
-                    <button className="text-slate-400 hover:text-red-600" onClick={() => deleteRun(r.id)} title="Delete">
-                      <IconTrash />
-                    </button>
-                  </div>
-                </div>
-              )}
-              {selectedRunId === r.id && (
-                <div className="card overflow-hidden !p-0">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
-                        <th className="px-5 py-3 font-medium">Employee</th>
-                        <th className="px-5 py-3 font-medium">Department</th>
-                        <th className="px-5 py-3 font-medium">Gross</th>
-                        <th className="px-5 py-3 font-medium">Net pay</th>
-                        <th className="px-5 py-3 font-medium"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {runPayslips.map((p) => (
-                        <Fragment key={p.id}>
-                          <tr
-                            className="cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
-                            onClick={() => setExpandedEmployeeId(expandedEmployeeId === p.employeeId ? null : p.employeeId)}
-                          >
-                            <td className="px-5 py-3 font-medium text-ink">
-                              {p.employeeFirstName} {p.employeeLastName}
-                            </td>
-                            <td className="px-5 py-3 text-slate-600">{p.department ?? '—'}</td>
-                            <td className="px-5 py-3 text-slate-600">{formatMoney(p.grossPay, payslipCurrency(p, branding))}</td>
-                            <td className="px-5 py-3 font-medium text-ink">{formatMoney(p.netPay, payslipCurrency(p, branding))}</td>
-                            <td className="px-5 py-3 text-right text-slate-400">
-                              <span
-                                className={`inline-block transition-transform ${expandedEmployeeId === p.employeeId ? 'rotate-90' : ''}`}
-                              >
-                                <IconChevronRight />
-                              </span>
-                            </td>
-                          </tr>
-                          {expandedEmployeeId === p.employeeId && (
-                            <tr>
-                              <td colSpan={5} className="bg-slate-50/60 px-5 py-4">
-                                <PayslipWithDownload payslip={p} branding={branding} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      ))}
-                      {runPayslips.length === 0 && (
-                        <tr>
-                          <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-500">
-                            No payslips on this run.
-                          </td>
-                        </tr>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Pay runs</h2>
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {['ALL', 'DRAFT', 'SUBMITTED', 'APPROVED', 'PAID'].map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => setStatusFilter(st)}
+                className={`rounded-full px-3 py-1 font-medium ${statusFilter === st ? 'bg-[color:var(--section)] text-white' : 'bg-white text-slate-600 ring-1 ring-slate-200'}`}
+              >
+                {st === 'ALL' ? `All ${runs.length}` : `${RUN_STATUS[st].label} ${counts[st] ?? 0}`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="card overflow-hidden !p-0">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-3 font-medium">Pay run</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 text-right font-medium">People</th>
+                <th className="px-5 py-3 text-right font-medium">Gross</th>
+                <th className="px-5 py-3 text-right font-medium">Net pay</th>
+                <th className="px-5 py-3 text-right font-medium">Total cost</th>
+                <th className="px-5 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((r) => {
+                const cur = COUNTRY_CURRENCY[r.countryCode] ?? branding?.currency ?? 'ZMW';
+                const st = RUN_STATUS[r.status] ?? { label: r.status, cls: 'bg-slate-100 text-slate-600' };
+                return (
+                  <tr key={r.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                    <td className="min-w-[230px] whitespace-nowrap px-5 py-3">
+                      <Link href={`/payroll/runs/${r.id}`} className="font-medium text-ink hover:text-[color:var(--section)]">
+                        {r.countryCode} · {runMonth(r.periodEnd)}
+                      </Link>
+                      <p className="text-xs text-slate-400">
+                        {fmt(r.periodStart)} – {fmt(r.periodEnd)}
+                        {r.payDate ? ` · pay date ${fmt(r.payDate)}` : ''}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3">
+                      <span className={`badge ${st.cls}`}>{st.label}</span>
+                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-600">{r.totals?.employees ?? '—'}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-600">{r.totals ? formatMoney(r.totals.gross, cur) : '—'}</td>
+                    <td className="px-5 py-3 text-right font-medium tabular-nums text-ink">{r.totals ? formatMoney(r.totals.net, cur) : '—'}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-600">{r.totals ? formatMoney(r.totals.cost, cur) : '—'}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-right">
+                      <Link href={`/payroll/runs/${r.id}`} className="text-xs font-semibold text-[color:var(--section)] hover:underline">
+                        Open
+                      </Link>
+                      {r.status === 'DRAFT' && (
+                        <button className="ml-3 align-middle text-slate-400 hover:text-red-600" onClick={() => deleteRun(r.id)} title="Delete draft" aria-label="Delete draft">
+                          <IconTrash />
+                        </button>
                       )}
-                    </tbody>
-                  </table>
-                </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {shown.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">
+                    {runs.length === 0 ? 'No pay runs yet.' : 'No pay runs with this status.'}
+                  </td>
+                </tr>
               )}
-            </div>
-          ))}
-          {runs.length === 0 && <p className="text-sm text-slate-500">No pay runs yet.</p>}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

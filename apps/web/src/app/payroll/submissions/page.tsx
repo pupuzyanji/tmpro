@@ -70,8 +70,11 @@ function usePeriodOptions(runs: PayRun[]) {
   }, [runs]);
 }
 
+/** v030.A — only approved (locked) or paid runs go into a return; drafts and
+ *  runs waiting for approval are left out. */
 function runsForPeriod(runs: PayRun[], year: number, month: number) {
   return runs.filter((r) => {
+    if (r.status !== 'APPROVED' && r.status !== 'PAID') return false;
     const d = new Date(r.periodEnd);
     return d.getFullYear() === year && d.getMonth() + 1 === month;
   });

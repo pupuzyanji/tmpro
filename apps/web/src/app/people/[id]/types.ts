@@ -115,4 +115,6 @@ export interface PersonAccount {
   mustChangePassword?: boolean;
   /** Status is Alumni (effective) — sign-in is switched off. */
   accessEnded?: boolean;
+  /** v030.A — may be named a payroll approver. */
+  canApprovePayroll?: boolean;
 }

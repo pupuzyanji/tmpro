@@ -10,6 +10,7 @@ const SETTINGS_ACCENTS: Record<string, Accent> = {
   leave: 'cyan',
   training: 'green',
   billing: 'orange',
+  payroll: 'orange',
   employees: 'blue',
   'org-chart': 'blue',
 };

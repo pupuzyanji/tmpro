@@ -159,6 +159,9 @@ export const users = pgTable(
     // v027.A — forces a password change at next sign-in (generated
     // temporary passwords). See AuthService.login().
     mustChangePassword: boolean('must_change_password').notNull().default(false),
+    // v030.A — Permission tab "Can approve payroll": may be named a payroll
+    // approver (Settings → Payroll approvals) whatever their role.
+    canApprovePayroll: boolean('can_approve_payroll').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [
@@ -1175,7 +1178,7 @@ export const performanceReviews = pgTable(
 // every payroll run)
 // ---------------------------------------------------------------------------
 
-export const payRunStatusEnum = pgEnum('pay_run_status', ['DRAFT', 'APPROVED', 'PAID']);
+export const payRunStatusEnum = pgEnum('pay_run_status', ['DRAFT', 'SUBMITTED', 'APPROVED', 'PAID']);
 export const payrollAdjustmentTypeEnum = pgEnum('payroll_adjustment_type', ['ADDITION', 'DEDUCTION']);
 export const payrollAdjustmentStatusEnum = pgEnum('payroll_adjustment_status', ['PENDING', 'COMPLETED', 'CANCELLED']);
 
@@ -1189,10 +1192,60 @@ export const payRuns = pgTable(
     countryCode: varchar('country_code', { length: 2 }).notNull(),
     status: payRunStatusEnum('status').notNull().default('DRAFT'),
     approvedById: uuid('approved_by_id'),
+    // v030.A — stages and approvals (see pay_run_events for the trail).
+    payDate: date('pay_date', { mode: 'string' }),
+    preparedByUserId: uuid('prepared_by_user_id'),
+    calculatedAt: timestamp('calculated_at'),
+    submittedAt: timestamp('submitted_at'),
+    approvalsRequired: integer('approvals_required'),
+    approvalReasons: jsonb('approval_reasons').$type<string[]>().notNull().default([]),
+    submittedChecks: jsonb('submitted_checks'),
+    approvedAt: timestamp('approved_at'),
+    paidAt: timestamp('paid_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [index('pay_runs_tenant_idx').on(t.tenantId)],
 );
+
+/** v030.A — a pay run's audit trail. */
+export const payRunEvents = pgTable('pay_run_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  payRunId: uuid('pay_run_id').notNull().references(() => payRuns.id, { onDelete: 'cascade' }),
+  action: varchar('action', { length: 24 }).notNull(),
+  level: integer('level'),
+  actorUserId: uuid('actor_user_id'),
+  actorName: varchar('actor_name', { length: 200 }),
+  comment: text('comment'),
+  data: jsonb('data').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+/** v030.A — per payroll country: how many approvals a run needs. */
+export const payrollApprovalSettings = pgTable('payroll_approval_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  countryCode: varchar('country_code', { length: 2 }).notNull(),
+  approvalsRequired: integer('approvals_required').notNull().default(1),
+  secondWhenCostOver: numeric('second_when_cost_over', { precision: 16, scale: 2, mode: 'number' }),
+  secondWhenIncreasePct: numeric('second_when_increase_pct', { precision: 6, scale: 2, mode: 'number' }),
+  secondWhenOverride: boolean('second_when_override').notNull().default(true),
+  preparerCannotApprove: boolean('preparer_cannot_approve').notNull().default(true),
+  sendBackNeedsComment: boolean('send_back_needs_comment').notNull().default(true),
+  notifyOnSubmit: boolean('notify_on_submit').notNull().default(true),
+  notifyOnDecision: boolean('notify_on_decision').notNull().default(true),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+/** v030.A — who may approve pay runs, per country and level ('1', '2', 'ANY'). */
+export const payrollApprovers = pgTable('payroll_approvers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+  countryCode: varchar('country_code', { length: 2 }).notNull(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  level: varchar('level', { length: 3 }).notNull().default('ANY'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
 
 export const payslips = pgTable(
   'payslips',

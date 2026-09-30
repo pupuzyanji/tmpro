@@ -174,7 +174,7 @@ export class EmployeesService {
 
     const [account] = await withTenant(tenantId, (tx) =>
       tx
-        .select({ email: users.email, role: users.role, mustChangePassword: users.mustChangePassword })
+        .select({ email: users.email, role: users.role, mustChangePassword: users.mustChangePassword, canApprovePayroll: users.canApprovePayroll })
         .from(users)
         .where(and(eq(users.tenantId, tenantId), eq(users.employeeId, id)))
         .limit(1),

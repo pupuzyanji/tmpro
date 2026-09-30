@@ -1860,6 +1860,75 @@ all 22 app pages plus the 6 public pages: everything renders, and there are no p
 errors. The only console error was the existing 404 from `/api/employees/me` for an
 Admin with no employee record.
 
+## v030.A — Pay run stages, approvals and the pay run page (2026-10-01)
+
+Built from the approved mockup (canvas "tmPro Pay Run Page").
+
+**Stages.** A pay run is no longer approved the moment it is calculated:
+- **DRAFT (prepare and review):** "Calculate draft" creates the run and opens it. "Recalculate" works everything out again: it undoes the payslips, including any additions or deductions they used, then recomputes them. Deleting a run and running it again is no longer needed. Only a draft can be edited or deleted.
+- **SUBMITTED:** the run waits for approval and is locked.
+  - An approver can send it back; a comment is required by default.
+  - The preparer can withdraw it.
+- **APPROVED:** the run is locked.
+  - An approver or an Admin can reopen it, with a reason. Reopening clears the approvals.
+  - HR or an Admin marks it as paid.
+- **PAID:** final; the run can't be reopened.
+- Runs made before v030.A keep their APPROVED or PAID status and have no history.
+
+**Checks** are worked out from the payslips.
+- **Must fix** (blocks submitting): negative net pay.
+- **Check** (must be accepted at submission):
+  - no tax ID;
+  - no NAPSA, NSSA or NSSF number (ZM, ZW, TZ);
+  - no NHIMA number (ZM);
+  - net pay more than 15% up or down on the previous run;
+  - active employees not on the run.
+- **For information:** new on this payroll, left since the last run, paid for part of the period, additions and deductions included, and fixed-term contracts ending within a month (with the gratuity due).
+
+**Approvals** (Settings → Payroll, per payroll country; new tables `payroll_approval_settings` and `payroll_approvers`).
+- **Who can approve:** people with "Can approve payroll" switched on (`users.can_approve_payroll`, Permission tab, Admin only). They need no HR or Admin role, and each is given a level: 1, 2 or either.
+- **Approvals needed:** one or always two. A second is also required when the run costs more than a set amount, is more than a set % up on the previous run, or a check was accepted at submission.
+- **Preparer rule:** the preparer (whoever calculated, recalculated or submitted the run) can't approve it.
+- **No approvers named:** any Admin can approve, still not their own run.
+- **Email:** approvers are emailed when a run is submitted, and the second approver after the first approval. The preparer is emailed when the run is approved or sent back.
+- **Audit trail:** every step goes into `pay_run_events`, shown as the run's History.
+
+**Pay run page** (`/payroll/runs/[id]`):
+- **Header:** period, pay date, currency, who calculated it, and the stage bar.
+- **Totals:** gross, tax, employee deductions, net, employer contributions and total employer cost, each against the previous run.
+- **Panels:** checks (grouped when several people share one); approval progress; gross-to-net; statutory and employer contributions.
+- **Employee grid:** basic, allowances, additions, gross, tax, statutory, other deductions, net, net against the previous run and employer cost. It has a totals row, department and "flagged" filters and search. Click a row to see the payslip.
+- **Reports:** payroll register, variance against the previous run and department summary, each as a CSV.
+- **History.**
+
+**Elsewhere:**
+- **Pay Runs list:** status filters, plus employees, gross, net and total cost for each run.
+- **Dashboard:** a "Pay runs waiting for your approval" card for approvers.
+- **Hidden until approved:** staff only see payslips from approved or paid runs, and Regulatory Submission only uses approved or paid runs.
+- **Zambian ruleset:** now shows employer contributions (NAPSA 5%, NHI 1% of basic, SDL 0.5%) and its currency.
+- **Payslips:** payslips record the addition or deduction they applied, so rollbacks are exact.
+- **Help:** "Run payroll" is rewritten, and there's a new article, "Set up and give pay run approvals".
+
+**API:**
+- `GET /payroll/runs/:id`, `GET /payroll/runs/:id/payslips/all`
+- `POST /payroll/runs/:id/{recalculate,submit,withdraw,approve,send-back,reopen,mark-paid}`
+- `GET /payroll/approvals/mine`
+- `GET|PATCH /payroll/approval-settings/:country`
+- `PATCH /payroll/approvers/employee/:employeeId`
+- `PATCH /payroll/runs/:id` now edits a draft's dates only.
+
+**Tested:** 33 API checks.
+- **Stages:** a new run is a draft; submitting is refused until the checks are accepted; a submitted run can't be recalculated or deleted.
+- **Who can approve:** an Admin who isn't an approver is refused; a level-2 approver can't give the first approval; the same person can't approve twice.
+- **Two-level approval:** approving at both levels locks the run.
+- **Changes after submitting:** reopening needs a reason and clears approvals; recalculation gives identical totals; sending back needs a comment; the preparer can withdraw.
+- **Paying:** only HR or an Admin marks a run paid, and a paid run can't be reopened.
+- **Admin fallback:** with no approvers named, an Admin can't approve their own run.
+- **Page access:** approvers who aren't HR can't list all runs.
+- **Migration:** 0039 also ran as a non-superuser database owner.
+
+Migration: `0039_pay_run_approvals.sql`. Versions: `APP_VERSION` `v030.A`; both package.json files `0.30.0`.
+
 ## v029.B — Leave side panel, People tiles, contracts ending, training tiles (2026-10-01)
 
 **Leave entitlements side panel.** The Leave page and People → (person) → Leave now show balances in a "Leave entitlements" panel on the right, one row per leave type, as the pre-v028 layout did. The panel is built on the v028 engine's figures:

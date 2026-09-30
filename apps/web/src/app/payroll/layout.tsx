@@ -36,7 +36,7 @@ export default function PayrollLayout({ children }: { children: React.ReactNode 
           label: t.label,
           icon: t.icon,
           href: t.href,
-          active: pathname === t.href || (t.href !== '/payroll' && pathname.startsWith(t.href)),
+          active: pathname === t.href || (t.href === '/payroll' ? pathname.startsWith('/payroll/runs') : pathname.startsWith(t.href)),
         }))}
       />
 
