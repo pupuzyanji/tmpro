@@ -1860,6 +1860,17 @@ all 22 app pages plus the 6 public pages: everything renders, and there are no p
 errors. The only console error was the existing 404 from `/api/employees/me` for an
 Admin with no employee record.
 
+## v030.B — Browser tab icon (2026-10-01)
+
+The tmPro "tm" mark now shows in the browser tab, in bookmarks and when saved to a phone's home screen. Next.js picks these up from `apps/web/src/app/` and adds the `<link>` tags itself:
+- `favicon.ico` (16, 32 and 48 px);
+- `icon.png` (192 px);
+- `apple-icon.png` (180 px, on white).
+
+All three are made from `public/logo-icon.png`. To change the icon later, replace the three files.
+
+No migration. Versions: `APP_VERSION` `v030.B`; both package.json files `0.30.1`.
+
 ## v030.A — Pay run stages, approvals and the pay run page (2026-10-01)
 
 Built from the approved mockup (canvas "tmPro Pay Run Page").
