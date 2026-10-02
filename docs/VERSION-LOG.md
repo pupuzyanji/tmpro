@@ -1860,6 +1860,29 @@ all 22 app pages plus the 6 public pages: everything renders, and there are no p
 errors. The only console error was the existing 404 from `/api/employees/me` for an
 Admin with no employee record.
 
+## v030.C — Faster People page and staff lists (2026-10-03)
+
+**Why it was slow.** Portrait photos are stored in the database as data URIs at whatever size they were uploaded (up to 3 MB each). `GET /employees` sent every person's full photo on every load. On a test tenant with eight 1.3 MB photos, the list was 14.3 MB.
+
+**Photos:**
+- A new upload is stored as a full photo of at most 512 px (JPEG) and a 128 px square thumbnail in the new `employees.photo_thumb` column. Processing is done by `common/uploads/photo.util.ts`, using `sharp`.
+- Every list, tile and avatar now gets the thumbnail. This covers the staff list (`GET /employees`), leave requests and the dashboard's contracts card. The profile page still loads the full photo.
+- Shortly after the API starts, it gives every existing photo a thumbnail and shrinks any oversized one. This runs once per photo and logs `[photos v030.C] <tenant> — n photos resized`. Set `PHOTO_BACKFILL=off` to skip it.
+- The same test list is now 40 KB, or 18 KB compressed.
+
+**Compression.** The API now gzips its responses (`compression` middleware).
+
+**People page:**
+- While the directory loads for the first time, the page shows placeholder tiles (or rows) and "Loading…". It no longer shows "0 of 0" and "No employees match".
+- The directory is kept in memory (`lib/people-cache.ts`). Coming back to People shows it at once and refreshes it in the background.
+- Hovering or focusing "People" in the sidebar starts the load early.
+
+**Navigation:**
+- A clicked sidebar item is highlighted immediately.
+- A light placeholder (`app/loading.tsx`) shows while the next page arrives.
+
+New API packages: `sharp`, `compression`, so run `npm ci` in `apps/api`. Migration: `0040_photo_thumbnails.sql`. Versions: `APP_VERSION` `v030.C`; both package.json files `0.30.2`.
+
 ## v030.B — Browser tab icon (2026-10-01)
 
 The tmPro "tm" mark now shows in the browser tab, in bookmarks and when saved to a phone's home screen. Next.js picks these up from `apps/web/src/app/` and adds the `<link>` tags itself:

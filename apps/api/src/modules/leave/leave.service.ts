@@ -694,7 +694,7 @@ export class LeaveService implements OnModuleInit, OnModuleDestroy {
     return {
       id: r.id,
       employeeId: r.employeeId,
-      employee: r.employee ? { id: r.employee.id, firstName: r.employee.firstName, lastName: r.employee.lastName, photoUrl: r.employee.photoUrl } : undefined,
+      employee: r.employee ? { id: r.employee.id, firstName: r.employee.firstName, lastName: r.employee.lastName, photoUrl: r.employee.photoThumb ?? r.employee.photoUrl } : undefined,
       leaveType: { id: r.leaveType.id, name: r.leaveType.name, code: r.leaveType.code, kind: r.leaveType.kind },
       startDate: r.startDate,
       endDate: r.endDate,

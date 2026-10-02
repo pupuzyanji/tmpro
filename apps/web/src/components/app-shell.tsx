@@ -11,6 +11,7 @@ import { ChangePasswordModal } from '@/components/change-password-modal';
 import { APP_VERSION } from '@/lib/version';
 import { accentClass } from '@/lib/section-accent';
 import { BillingBanner } from '@/components/billing-banner';
+import { prefetchPeople } from '@/lib/people-cache';
 import {
   IconGrid,
   IconUsers,
@@ -67,6 +68,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Remembered per-browser (not per-user data, so localStorage is fine here)
   // so the sidebar stays collapsed/expanded across page loads.
   const [collapsed, setCollapsed] = useState(false);
+  // v030.C — the sidebar item just clicked, until its page is showing.
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  useEffect(() => {
+    setPendingHref(null);
+  }, [pathname]);
   const [theme, setTheme] = useState<Theme>('midnight');
   const [showPasswordModal, setShowPasswordModal] = useState(false);
 
@@ -222,11 +228,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="flex flex-1 flex-col gap-1">
           {links.map((l) => {
-            const isActive = pathname.startsWith(l.href);
+            // v030.C — the clicked item lights up at once, before the page
+            // has arrived; hovering People starts loading the directory.
+            const isActive = pendingHref ? pendingHref === l.href : pathname.startsWith(l.href);
+            const warm = l.href === '/people' ? () => prefetchPeople(`${session.tenant.slug}:${session.user.id}`, session.accessToken) : undefined;
             return (
               <Link
                 key={l.href}
                 href={l.href}
+                onClick={() => setPendingHref(l.href)}
+                onMouseEnter={warm}
+                onFocus={warm}
                 title={collapsed ? l.label : undefined}
                 className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                   collapsed ? 'justify-center' : ''

@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { and, eq, isNull, like, or, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, createHash } from 'crypto';
 import { db, withTenant } from '../../db/client';
@@ -11,6 +11,7 @@ import type * as schema from '../../db/schema';
 import type { AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { importCsvRows } from '../../common/csv/csv-import.util';
 import { MailService } from '../../common/mail/mail.service';
+import { PHOTO_FULL_MAX_CHARS, photoColumns } from '../../common/uploads/photo.util';
 import type { CreateEmployeeDto, EmploymentType, UpdateEmployeeDto } from './dto/create-employee.dto';
 import type { EditableRole } from './dto/update-employee-role.dto';
 import { WEB_APP_URL, employeeAccessEnded, generateTempPassword, issueResetToken, resetLink } from '../../auth/account-security';
@@ -35,7 +36,10 @@ const LIST_COLUMNS = {
   employeeCode: employees.employeeCode,
   firstName: employees.firstName,
   lastName: employees.lastName,
-  photoUrl: employees.photoUrl,
+  // v030.C — lists get the 128 px thumbnail, not the full photo (which the
+  // profile page loads). Falls back to the full photo until the start-up
+  // pass has made a thumbnail.
+  photoUrl: sql<string | null>`coalesce(${employees.photoThumb}, ${employees.photoUrl})`,
   jobTitle: employees.jobTitle,
   department: employees.department,
   status: employees.status,
@@ -67,8 +71,47 @@ function assertMayManageAccount(actingUser: AuthenticatedUser, targetRole: strin
 }
 
 @Injectable()
-export class EmployeesService {
+export class EmployeesService implements OnModuleInit {
+  private readonly logger = new Logger('EmployeesService');
   constructor(private mail: MailService) {}
+
+  /** v030.C — shortly after start-up, give every stored photo a thumbnail
+   *  and shrink any photo still at its uploaded size. Runs once per photo:
+   *  processed photos no longer match the query. */
+  onModuleInit() {
+    if (process.env.PHOTO_BACKFILL === 'off') return;
+    setTimeout(() => void this.backfillPhotos(), 5000);
+  }
+
+  async backfillPhotos(): Promise<number> {
+    let done = 0;
+    const all = await db.select({ id: tenants.id, name: tenants.name }).from(tenants);
+    for (const t of all) {
+      try {
+        const n = await withTenant(t.id, async (tx) => {
+          const rows = await tx
+            .select({ id: employees.id, photoUrl: employees.photoUrl })
+            .from(employees)
+            .where(
+              and(
+                eq(employees.tenantId, t.id),
+                like(employees.photoUrl, 'data:%'),
+                or(isNull(employees.photoThumb), sql`length(${employees.photoUrl}) > ${PHOTO_FULL_MAX_CHARS}`),
+              ),
+            );
+          for (const r of rows) {
+            await tx.update(employees).set(await photoColumns(r.photoUrl)).where(eq(employees.id, r.id));
+          }
+          return rows.length;
+        });
+        if (n) this.logger.log(`[photos v030.C] ${t.name} — ${n} photo${n === 1 ? '' : 's'} resized`);
+        done += n;
+      } catch (err) {
+        this.logger.error(`[photos] ${t.name} failed: ${(err as Error).message}`);
+      }
+    }
+    return done;
+  }
 
   /** Every method takes tenantId explicitly and filters by it — the first
    *  (application-level) layer of tenant isolation; withTenant() also sets
@@ -289,6 +332,9 @@ export class EmployeesService {
     // class-validator's @IsDateString keeps these as ISO strings on the DTO;
     // Drizzle's timestamp columns want actual Date objects.
     const dateFields: Partial<typeof employees.$inferInsert> = {};
+    // v030.C — a new photo is shrunk and gets a thumbnail before it is stored.
+    if (dto.photoUrl !== undefined && dto.photoUrl !== before.photoUrl) Object.assign(dateFields, await photoColumns(dto.photoUrl));
+    else delete (rest as { photoUrl?: string }).photoUrl;
     if (startDate !== undefined) dateFields.startDate = new Date(startDate);
     if (dateOfBirth !== undefined) dateFields.dateOfBirth = new Date(dateOfBirth);
     const [row] = await withTenant(tenantId, async (tx) => {

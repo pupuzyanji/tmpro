@@ -8,6 +8,7 @@ import { Avatar } from '@/components/avatar';
 import { StatusBadge } from '@/components/status-badge';
 import { IconChevronDown, IconEye, IconGrid, IconList, IconMail, IconMapPin, IconPhone, IconX } from '@/components/icons';
 import { fmt } from '@/lib/format';
+import { cachedPeople, loadPeople } from '@/lib/people-cache';
 
 interface Employee {
   id: string;
@@ -74,6 +75,7 @@ const deptOf = (p: Employee) => p.department?.trim() || NO_DEPARTMENT;
 export default function PeoplePage() {
   const { session, ready, call } = useApi();
   const [people, setPeople] = useState<Employee[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -102,12 +104,34 @@ export default function PeoplePage() {
     }
   }
 
+  // v030.C — show the list from the last visit at once, then refresh it in
+  // the background; until the first load finishes show placeholders, never
+  // an empty "no employees" message.
+  const cacheKey = session ? `${session.tenant.slug}:${session.user.id}` : null;
   useEffect(() => {
-    if (!ready) return;
-    call<Employee[]>('/employees')
-      .then(setPeople)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load employees.'));
-  }, [ready, call]);
+    if (!ready || !session || !cacheKey) return;
+    const have = cachedPeople(cacheKey);
+    if (have) {
+      setPeople(have);
+      setLoaded(true);
+    }
+    let cancelled = false;
+    loadPeople(cacheKey, session.accessToken)
+      .then((list) => {
+        if (cancelled) return;
+        setPeople(list);
+        setLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof ApiError ? err.message : 'Could not load employees.');
+        setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, cacheKey]);
 
   useEffect(() => {
     if (!quick) return;
@@ -194,7 +218,7 @@ export default function PeoplePage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-ink">People</h1>
-          <p className="text-sm text-slate-500">{scopeLabel}</p>
+          <p className="text-sm text-slate-500">{loaded ? scopeLabel : 'Loading…'}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -235,7 +259,8 @@ export default function PeoplePage() {
 
       {view === 'tiles' ? (
         <div className="space-y-6">
-          {filtered.length === 0 && (
+          {!loaded && <TileSkeleton />}
+          {loaded && filtered.length === 0 && (
             <p className="card text-center text-sm text-slate-500">{query ? `No employees match “${query}”.` : 'No employees yet.'}</p>
           )}
           {groups.map((g) => (
@@ -315,10 +340,26 @@ export default function PeoplePage() {
                   <td className="px-5 py-3 text-slate-500">{fmt(p.startDate)}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {!loaded &&
+                [0, 1, 2, 3, 4].map((i) => (
+                  <tr key={i} className="border-b border-slate-50 last:border-0" aria-hidden="true">
+                    <td className="px-5 py-3">
+                      <span className="flex items-center gap-3">
+                        <span className="h-7 w-7 animate-pulse rounded-full bg-slate-200" />
+                        <span className="h-3 w-36 animate-pulse rounded bg-slate-200" />
+                      </span>
+                    </td>
+                    {[28, 24, 14, 20].map((w, j) => (
+                      <td key={j} className="px-5 py-3">
+                        <span className="block h-3 animate-pulse rounded bg-slate-100" style={{ width: `${w * 4}px` }} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              {loaded && filtered.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-500">
-                    No employees match “{query}”.
+                    {query ? `No employees match “${query}”.` : 'No employees yet.'}
                   </td>
                 </tr>
               )}
@@ -340,6 +381,27 @@ export default function PeoplePage() {
 
       {quick && <QuickView p={quick} manager={quick.managerId ? byId.get(quick.managerId) : undefined} onClose={() => setQuick(null)} />}
     </div>
+  );
+}
+
+/** Placeholder tiles shown while the directory loads for the first time. */
+function TileSkeleton() {
+  return (
+    <section className="rounded-2xl bg-slate-50/70 p-4 ring-1 ring-slate-100" aria-busy="true" aria-label="Loading people">
+      <div className="mb-3 h-4 w-32 animate-pulse rounded bg-slate-200" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="flex gap-3.5 rounded-xl border border-slate-100 bg-white p-4 shadow-card">
+            <div className="h-14 w-14 shrink-0 animate-pulse rounded-full bg-slate-200" />
+            <div className="flex-1 space-y-2 py-1">
+              <div className="h-3.5 w-3/4 animate-pulse rounded bg-slate-200" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+              <div className="h-3 w-2/5 animate-pulse rounded bg-slate-100" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

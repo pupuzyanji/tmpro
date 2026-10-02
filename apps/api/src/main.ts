@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { json, raw, urlencoded } from 'express';
+import compression from 'compression';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -15,6 +16,9 @@ async function bootstrap() {
   // v025.A — Stripe signs the exact bytes it sends, so its webhook route
   // gets the raw body (a Buffer) instead of parsed JSON. Registered first:
   // once raw() has read the body, json() below leaves that request alone.
+  // v030.C — gzip every response over 1 KB (staff lists, payslips, leave
+  // data): typically 70–80% smaller on the wire.
+  app.use(compression());
   app.use('/api/billing/webhook', raw({ type: 'application/json', limit: '1mb' }));
   app.use(json({ limit: '15mb' }));
   app.use(urlencoded({ extended: true, limit: '15mb' }));

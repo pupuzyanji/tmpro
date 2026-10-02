@@ -339,6 +339,8 @@ export const employees = pgTable(
     // Portrait photo — stored as a data URI (no object storage in this
     // scaffold yet); nullable, falls back to the initials avatar when unset.
     photoUrl: text('photo_url'),
+    // v030.C — 128 px thumbnail of photoUrl for lists, tiles and avatars.
+    photoThumb: text('photo_thumb'),
 
     // Personal details
     email: varchar('personal_email', { length: 255 }),

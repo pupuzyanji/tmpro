@@ -217,7 +217,7 @@ export class ContractsService {
           contractId: c.id,
           employeeId: e.id,
           name: `${e.firstName} ${e.lastName}`,
-          photoUrl: e.photoUrl,
+          photoUrl: e.photoThumb ?? e.photoUrl,
           jobTitle: e.jobTitle,
           department: e.department,
           countryCode: e.countryCode,
