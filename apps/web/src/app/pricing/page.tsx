@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/api';
+import { track } from '@/lib/analytics';
 import { IconCheckCircle } from '@/components/icons';
 import { PublicFooter } from '@/components/public-chrome';
 import {
@@ -227,12 +228,13 @@ function PricingPageInner() {
                 {usd != null ? (
                   <Link
                     href={`/register-organisation?plan=${plan}&band=${band}`}
+                    onClick={() => track('plan_click', `${plan}-${band}`)}
                     className={`mt-5 w-full ${p.highlight ? 'btn-primary' : 'btn-secondary'} !py-2.5`}
                   >
                     Start {TRIAL_DAYS}-day free trial
                   </Link>
                 ) : (
-                  <Link href={`/register-organisation?contact=1&plan=${plan}`} className="btn-secondary mt-5 w-full !py-2.5">
+                  <Link href={`/register-organisation?contact=1&plan=${plan}`} onClick={() => track('plan_click', `${plan}-contact`)} className="btn-secondary mt-5 w-full !py-2.5">
                     Contact us
                   </Link>
                 )}

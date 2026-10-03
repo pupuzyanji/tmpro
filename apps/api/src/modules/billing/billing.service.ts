@@ -1,3 +1,4 @@
+import { cleanAttribution } from '../marketing/attribution';
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, eq, lt } from 'drizzle-orm';
 import type Stripe from 'stripe';
@@ -68,6 +69,7 @@ function periodEnd(sub: Stripe.Subscription): Date | null {
   const item = sub.items?.data?.[0] as (Stripe.SubscriptionItem & { current_period_end?: number }) | undefined;
   return toDate(legacy ?? item?.current_period_end);
 }
+
 
 @Injectable()
 export class BillingService {
@@ -147,6 +149,7 @@ export class BillingService {
           billingStatus: 'INCOMPLETE',
           billingEmail: email,
           country: dto.country.trim(),
+          attribution: cleanAttribution(dto.attribution),
           stripeCustomerId: customer.id,
         })
         .where(eq(tenants.id, created.id));

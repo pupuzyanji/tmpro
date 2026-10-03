@@ -1860,6 +1860,34 @@ all 22 app pages plus the 6 public pages: everything renders, and there are no p
 errors. The only console error was the existing 404 from `/api/employees/me` for an
 Admin with no employee record.
 
+## v031.A — Campaign tracking: short links, sources and PostHog (2026-10-03)
+
+Shows which shared links bring visitors, and which of those visitors register an organisation.
+
+**Short links (Platform Admin → Links):**
+- Create a link such as `tmpro.bitware.app/go/wa-hr-lusaka` for each place a link is shared (each WhatsApp group, post, flyer). Choose where it goes, where it is shared, a campaign and a label; the short name is suggested and can be edited.
+- Opening a short link counts the click and redirects to the destination with `utm_source`, `utm_medium`, `utm_campaign`, `utm_content` and `tl=<short name>` attached. Link previews and crawlers (WhatsApp, Facebook, Slack and others) are not counted.
+- Each link shows clicks, clicks this week, known visitors and registrations. A link can be copied, downloaded as a QR code, duplicated, paused, or pointed at a different page. Destinations are tmPro pages only. A short name cannot be reused.
+- Web route `app/go/[slug]/route.ts`; API `POST /marketing/click`.
+
+**Where registrations came from:**
+- The public pages remember the campaign on the link a visitor arrived by: first touch and last touch (source, medium, campaign, label, short link, referring site, landing page, time).
+- Both registration forms send it; it is saved on `tenants.attribution` and `org_signup_requests.attribution`, shown as "Came from" on the Tenants and Pending Applications lists, and included in the new-sign-up email.
+
+**Sources (Platform Admin → Sources):**
+- One row per source / medium / campaign / label for the last 7, 30, 90 or 365 days: visits, pricing views, plan clicks, registrations, on trial, paying, and visit-to-registration rate.
+- Fed by anonymous events from the public pages (`POST /marketing/event`: `visit`, `pricing_view`, `plan_click`, `signup`), stored in `marketing_events`.
+
+**PostHog and consent:**
+- Public pages (sign-in, pricing, registration, careers, support, privacy, terms) show an Accept / Decline analytics notice.
+- Accept: PostHog loads on those pages (page views, autocapture, session recordings with all inputs masked), and the visitor gets a remembered id. On registration the visitor is identified by email, which joins their history across devices.
+- Decline: PostHog is never loaded and no visitor id is created. The campaign is kept for that browser tab only, so a registration still records where it came from.
+- PostHog is switched off whenever the visitor is inside the signed-in app or Platform Admin, so recordings never contain customer data.
+- Project key and region are in `apps/web/src/lib/analytics.ts`. The region defaults to US; set `NEXT_PUBLIC_POSTHOG_HOST=https://eu.i.posthog.com` in the web app's environment (and rebuild) for an EU project.
+- Privacy Policy updated: it no longer says tmPro uses no cookies or third-party analytics.
+
+New web packages: `posthog-js`, `qrcode`, so run `npm ci` in `apps/web`. Migration: `0041_marketing_tracking.sql` (`tracked_links`, `link_clicks`, `marketing_events`, two `attribution` columns). Versions: `APP_VERSION` `v031.A`; both package.json files `0.31.0`.
+
 ## v030.C — Faster People page and staff lists (2026-10-03)
 
 **Why it was slow.** Portrait photos are stored in the database as data URIs at whatever size they were uploaded (up to 3 MB each). `GET /employees` sent every person's full photo on every load. On a test tenant with eight 1.3 MB photos, the list was 14.3 MB.

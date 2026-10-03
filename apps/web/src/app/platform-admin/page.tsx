@@ -8,7 +8,8 @@ import { ApiError } from '@/lib/api';
 import { MODULE_KEYS, type ModuleKey } from '@/lib/modules';
 import { LogoMark } from '@/components/logo';
 import { TabBar } from '@/components/tab-bar';
-import { IconCheckCircle, IconPauseCircle, IconClock } from '@/components/icons';
+import { IconCheckCircle, IconPauseCircle, IconClock, IconChartBar, IconDownload } from '@/components/icons';
+import { LinksTab, SourcesTab, cameFrom, type Attribution } from './marketing-tabs';
 import { TenantFormModal, EMPTY_TENANT_FORM, type TenantFormValues } from './tenant-form';
 
 interface Tenant {
@@ -16,6 +17,7 @@ interface Tenant {
   slug: string;
   name: string;
   status: 'ACTIVE' | 'INACTIVE';
+  attribution?: Attribution | null;
   enabledModules: string[];
   seatCap: number | null;
   seatsUsed: number;
@@ -51,10 +53,11 @@ interface PendingApplication {
   staffComplement: number;
   featuresNeeded: string[];
   status: 'NEW' | 'CONTACTED' | 'CONVERTED' | 'DECLINED';
+  attribution?: Attribution | null;
   createdAt: string;
 }
 
-type Tab = 'active' | 'inactive' | 'pending';
+type Tab = 'active' | 'inactive' | 'pending' | 'sources' | 'links';
 
 const PENDING_STATUS_STYLES: Record<string, string> = {
   NEW: 'bg-sky-50 text-sky-700',
@@ -288,13 +291,18 @@ export default function PlatformAdminDashboardPage() {
               ['active', `Active Tenants (${activeTenants.length})`, <IconCheckCircle key="i" />],
               ['inactive', `Inactive Tenants (${inactiveTenants.length})`, <IconPauseCircle key="i" />],
               ['pending', `Pending Applications (${applications.length})`, <IconClock key="i" />],
+              ['sources', 'Sources', <IconChartBar key="i" />],
+              ['links', 'Links', <IconDownload key="i" />],
             ] as [Tab, string, React.ReactNode][]
           ).map(([key, label, icon]) => ({ key, label, icon, active: tab === key, onClick: () => setTab(key) }))}
         />
 
         {error && <p className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p>}
 
-        {tab !== 'pending' && (
+        {tab === 'sources' && <SourcesTab />}
+        {tab === 'links' && <LinksTab />}
+
+        {(tab === 'active' || tab === 'inactive') && (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -313,6 +321,7 @@ export default function PlatformAdminDashboardPage() {
                     <td className="px-5 py-4">
                       <p className="font-medium text-ink">{t.name}</p>
                       <p className="text-xs text-slate-400">{t.slug}</p>
+                      {t.attribution && <p className="mt-0.5 text-xs text-slate-500">Came from: {cameFrom(t.attribution)}</p>}
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       <p>{adminName(t)}</p>
@@ -405,6 +414,7 @@ export default function PlatformAdminDashboardPage() {
                       <p className="text-xs text-slate-400">
                         {new Date(app.createdAt).toLocaleDateString()}
                       </p>
+                      {app.attribution && <p className="mt-0.5 text-xs text-slate-500">Came from: {cameFrom(app.attribution)}</p>}
                     </td>
                     <td className="px-5 py-4 text-slate-600">
                       <p>{app.name}</p>

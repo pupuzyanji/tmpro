@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsEmail, IsInt, IsString, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, IsObject, IsOptional, IsArray, IsEmail, IsInt, IsString, Min, MinLength } from 'class-validator';
 
 export class CreateOrgSignupDto {
   @IsString()
@@ -30,4 +30,9 @@ export class CreateOrgSignupDto {
   @ArrayMaxSize(20)
   @IsString({ each: true })
   featuresNeeded!: string[];
+
+  // v031.A — the campaign they came from; see modules/marketing/attribution.ts.
+  @IsOptional()
+  @IsObject()
+  attribution?: Record<string, unknown>;
 }

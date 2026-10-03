@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { SelfServeSignup } from './self-serve-signup';
 import { isBandKey, isPlanKey } from '@/lib/billing-plans';
 import { apiFetch, ApiError } from '@/lib/api';
+import { getAttribution, identifySignup, track } from '@/lib/analytics';
 import { Logo } from '@/components/logo';
 import { COUNTRIES, DIAL_CODE_OPTIONS } from '@/lib/reference-data';
 import {
@@ -98,8 +99,11 @@ function ContactForm({ enterprise }: { enterprise: boolean }) {
           country,
           staffComplement: staff,
           featuresNeeded: features,
+          attribution: getAttribution() ?? undefined,
         }),
       });
+      identifySignup(email, organisationName);
+      track('signup', 'enquiry');
       setStatus('done');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');

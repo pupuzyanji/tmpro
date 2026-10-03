@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { db } from '../../db/client';
 import { orgSignupRequests } from '../../db/schema';
 import { MailService } from '../../common/mail/mail.service';
+import { cleanAttribution } from '../marketing/attribution';
 import type { CreateOrgSignupDto } from './dto/org-signup.dto';
 
 // v023.A — every "Sign-up Here" submission is mailed here too, not just
@@ -15,6 +16,9 @@ const NOTIFY_EMAIL = 'us@bitware.app';
  * there's no tenant to scope this to) for an ops person to action manually.
  * See the `orgSignupRequests` comment in schema.ts.
  */
+const cameFrom = (a: ReturnType<typeof cleanAttribution>) =>
+  a ? [a.last.source, a.last.medium, a.last.campaign, a.last.content].filter(Boolean).join(' / ') : '(unknown)';
+
 @Injectable()
 export class OrgSignupService {
   constructor(private mail: MailService) {}
@@ -30,6 +34,7 @@ export class OrgSignupService {
         country: dto.country.trim(),
         staffComplement: dto.staffComplement,
         featuresNeeded: dto.featuresNeeded,
+        attribution: cleanAttribution(dto.attribution),
       })
       .returning();
 
@@ -46,6 +51,7 @@ export class OrgSignupService {
         `Country: ${row.country}`,
         `Staff complement: ${row.staffComplement}`,
         `Features requested: ${row.featuresNeeded.length ? row.featuresNeeded.join(', ') : '(none selected)'}`,
+        `Came from: ${cameFrom(cleanAttribution(row.attribution))}`,
         '',
         'Review and create their tenant from Platform Admin > Tenants > Pending Applications.',
       ].join('\n'),

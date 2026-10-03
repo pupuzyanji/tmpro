@@ -75,6 +75,48 @@ export const tenants = pgTable('tenants', {
   stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
   trialEndsAt: timestamp('trial_ends_at'),
   currentPeriodEnd: timestamp('current_period_end'),
+  // v031.A — the campaign this organisation came from (first and last
+  // touch), captured on the public pages and sent with the sign-up form.
+  attribution: jsonb('attribution'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// v031.A — campaign tracking. Untenanted: these describe tmPro's own
+// marketing (short links, their clicks, public-page funnel events).
+export const trackedLinks = pgTable('tracked_links', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: varchar('slug', { length: 80 }).notNull().unique(),
+  destination: varchar('destination', { length: 300 }).notNull(),
+  utmSource: varchar('utm_source', { length: 80 }).notNull(),
+  utmMedium: varchar('utm_medium', { length: 80 }),
+  utmCampaign: varchar('utm_campaign', { length: 120 }),
+  utmContent: varchar('utm_content', { length: 160 }),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const linkClicks = pgTable('link_clicks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  linkId: uuid('link_id').notNull().references(() => trackedLinks.id, { onDelete: 'cascade' }),
+  device: varchar('device', { length: 20 }),
+  country: varchar('country', { length: 8 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const marketingEvents = pgTable('marketing_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  type: varchar('type', { length: 20 }).notNull(),
+  visitorId: varchar('visitor_id', { length: 64 }),
+  path: varchar('path', { length: 300 }),
+  detail: varchar('detail', { length: 120 }),
+  linkSlug: varchar('link_slug', { length: 80 }),
+  utmSource: varchar('utm_source', { length: 80 }),
+  utmMedium: varchar('utm_medium', { length: 80 }),
+  utmCampaign: varchar('utm_campaign', { length: 120 }),
+  utmContent: varchar('utm_content', { length: 160 }),
+  referrer: varchar('referrer', { length: 300 }),
+  device: varchar('device', { length: 20 }),
+  country: varchar('country', { length: 8 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -127,6 +169,7 @@ export const orgSignupRequests = pgTable('org_signup_requests', {
   // Which of tmPro's modules they're interested in — checkboxes on the form.
   featuresNeeded: text('features_needed').array().notNull().default([]),
   status: orgSignupStatusEnum('status').notNull().default('NEW'),
+  attribution: jsonb('attribution'), // v031.A — see tenants.attribution
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

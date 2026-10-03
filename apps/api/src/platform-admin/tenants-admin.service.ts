@@ -187,6 +187,7 @@ export class TenantsAdminService {
       billingStatus: t.billingStatus,
       billingEmail: t.billingEmail,
       country: t.country,
+      attribution: t.attribution, // v031.A — the campaign they came from
       trialEndsAt: t.trialEndsAt,
       currentPeriodEnd: t.currentPeriodEnd,
       // Counts toward MRR only while actually paying (not trialing/lapsed).

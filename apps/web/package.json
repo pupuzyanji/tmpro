@@ -1,6 +1,6 @@
 {
   "name": "@tmpro/web",
-  "version": "0.30.2",
+  "version": "0.31.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,11 +13,14 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "next": "16.3.6",
+    "posthog-js": "^1.435.8",
+    "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.20",

@@ -104,8 +104,22 @@ export default function PrivacyPolicyPage() {
             </li>
             <li>
               When you sign in, your browser&apos;s local storage holds a sign-in token and basic profile details so you
-              stay signed in, plus your theme and sidebar preferences. We <strong>do not use cookies</strong>, advertising
-              trackers or third-party analytics.
+              stay signed in, plus your theme and sidebar preferences. Inside the signed-in app we use no advertising
+              trackers and no third-party analytics.
+            </li>
+            <li>
+              On our public pages (sign-in, pricing, registration, careers and support) we note which link or campaign
+              brought you here, so we can tell which of our own posts and adverts are useful. If you register an
+              organisation, that campaign is saved with the registration. Clicks on our short links (addresses
+              beginning <code>/go/</code>) are counted without identifying you.
+            </li>
+            <li>
+              If you choose <strong>Accept</strong> on the analytics notice shown on those public pages, we also use
+              PostHog, a third-party analytics service, there. It sets a cookie and uses local storage to recognise
+              your browser on later visits, measures how the pages are used, and records anonymised sessions with
+              everything you type masked. If you choose <strong>Decline</strong>, PostHog is never loaded. Either way,
+              PostHog is switched off as soon as you sign in, and never sees the data held in your organisation&apos;s
+              account. You can change your choice at any time by clearing this site&apos;s data in your browser.
             </li>
             <li>
               To show an approximate price in your local currency on our pricing page, your browser works out your likely

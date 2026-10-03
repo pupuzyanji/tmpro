@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { apiFetch, ApiError } from '@/lib/api';
+import { getAttribution, identifySignup, track } from '@/lib/analytics';
 import { Logo } from '@/components/logo';
 import { IconCheckCircle, IconShield } from '@/components/icons';
 import { COUNTRIES, DIAL_CODE_OPTIONS } from '@/lib/reference-data';
@@ -49,8 +50,11 @@ export function SelfServeSignup({ initialPlan, initialBand }: { initialPlan: Pla
           email,
           phone: `${dialCode} ${phoneNumber.trim()}`,
           password,
+          attribution: getAttribution() ?? undefined,
         }),
       });
+      identifySignup(email, organisationName);
+      track('signup', `${plan}-${band}`);
       window.location.href = res.checkoutUrl;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');

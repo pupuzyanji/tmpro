@@ -28,6 +28,8 @@ class HealthController {
   }
 }
 
+import { MarketingModule } from './modules/marketing/marketing.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -49,6 +51,7 @@ class HealthController {
     BillingModule,
     DataExportModule,
     ContractsModule,
+    MarketingModule,
   ],
   controllers: [HealthController],
 })

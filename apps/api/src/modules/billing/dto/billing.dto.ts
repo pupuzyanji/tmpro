@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsObject, IsOptional, IsEmail, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
 import { BAND_KEYS, PLAN_KEYS, type BandKey, type PlanKey } from '../../../common/billing/plans';
 
 /** Public self-serve sign-up (v025.A): creates the tenant + its first Admin
@@ -42,6 +42,11 @@ export class SelfServeSignupDto {
   @MinLength(8)
   @MaxLength(200)
   password!: string;
+
+  // v031.A — the campaign they came from; see modules/marketing/attribution.ts.
+  @IsOptional()
+  @IsObject()
+  attribution?: Record<string, unknown>;
 }
 
 /** Settings → Billing: switch plan and/or size band. */
